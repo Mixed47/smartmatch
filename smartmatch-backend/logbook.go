@@ -122,7 +122,12 @@ func ListMyLogbookHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not logged in")
 		return
 	}
-	if roleFromContext(r.Context()) != roleStudent {
+	role := roleFromContext(r.Context())
+	if role == roleTeacher {
+		listTeacherLogbooks(w)
+		return
+	}
+	if role != roleStudent {
 		writeError(w, http.StatusForbidden, "only students can view logbook entries")
 		return
 	}
@@ -153,6 +158,36 @@ func ListMyLogbookHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"data": entries})
+}
+
+func listTeacherLogbooks(w http.ResponseWriter) {
+	rows, err := db.Query(
+		`SELECT e.id,
+		        COALESCE((SELECT name FROM applications WHERE student_id = e.student_id ORDER BY id DESC LIMIT 1), u.email),
+		        e.tasks,
+		        IFNULL(e.blocker, ''),
+		        DATE_FORMAT(e.date, '%Y-%m-%d')
+		 FROM logbook_entries e
+		 JOIN users u ON u.id = e.student_id
+		 ORDER BY e.date DESC, e.id DESC`,
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load logbook entries")
+		return
+	}
+	defer rows.Close()
+
+	logs := []LogbookEntry{}
+	for rows.Next() {
+		var l LogbookEntry
+		if err := rows.Scan(&l.ID, &l.Name, &l.Activity, &l.Blocker, &l.CreatedAt); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to read logbook entries")
+			return
+		}
+		l.Category = "Daily"
+		logs = append(logs, l)
+	}
+	writeJSON(w, http.StatusOK, logs)
 }
 
 func EvaluateLogbookHandler(w http.ResponseWriter, r *http.Request) {

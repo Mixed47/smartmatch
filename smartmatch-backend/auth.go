@@ -234,6 +234,40 @@ func roleFromContext(ctx context.Context) string {
 	return role
 }
 
+func requireRoles(roles ...string) func(http.Handler) http.Handler {
+	allowed := make(map[string]bool, len(roles))
+	for _, role := range roles {
+		allowed[role] = true
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			role := roleFromContext(r.Context())
+			if !allowed[role] {
+				writeError(w, http.StatusForbidden, "forbidden")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func authed(h http.HandlerFunc, roles ...string) http.Handler {
+	handler := http.Handler(http.HandlerFunc(h))
+	if len(roles) > 0 {
+		handler = requireRoles(roles...)(handler)
+	}
+	return jwtAuthMiddleware(handler)
+}
+
+func currentUser(w http.ResponseWriter, r *http.Request) (int64, string, bool) {
+	id, ok := userIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "not logged in")
+		return 0, "", false
+	}
+	return id, roleFromContext(r.Context()), true
+}
+
 func jwtAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		header := strings.TrimSpace(r.Header.Get("Authorization"))

@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -94,8 +95,24 @@ type EvaluateRequest struct {
 
 var db *sql.DB
 
+func loadDotEnv() {
+	candidates := []string{".env"}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), ".env"))
+	}
+	if wd, err := os.Getwd(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(wd, ".env"),
+			filepath.Join(wd, "smartmatch-backend", ".env"),
+		)
+	}
+	for _, path := range candidates {
+		_ = godotenv.Load(path)
+	}
+}
+
 func initDB() {
-	_ = godotenv.Load()
+	loadDotEnv()
 	dsn := os.Getenv("DB_URL")
 	dsn = strings.Trim(dsn, `"`)
 	if dsn == "" {
@@ -138,7 +155,7 @@ func initDB() {
 }
 
 func main() {
-	_ = godotenv.Load()
+	loadDotEnv()
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -263,14 +280,29 @@ func getEvaluationsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func callGeminiAPI(prompt string, base64Data string, mimeType string) (string, error) {
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	models := []string{"gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"}
+	return callGeminiGenerate(prompt, base64Data, mimeType, false)
+}
+
+func callGeminiJSON(prompt string) (string, error) {
+	text, err := callGeminiGenerate(prompt, "", "", true)
+	if err == nil {
+		return text, nil
+	}
+	return callGeminiGenerate(prompt, "", "", false)
+}
+
+func callGeminiGenerate(prompt string, base64Data string, mimeType string, jsonMode bool) (string, error) {
+	apiKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
+	if apiKey == "" {
+		return "", fmt.Errorf("GEMINI_API_KEY is not configured")
+	}
+
+	models := []string{"gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"}
 	var lastErr error
 	for _, modelName := range models {
 		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, apiKey)
 		parts := []map[string]interface{}{{"text": prompt}}
 
-		// 🚨 จุดที่แก้แล้ว: ใช้ inlineData และ mimeType (ตัวพิมพ์ใหญ่ ไม่มีขีดล่าง)
 		if base64Data != "" {
 			if mimeType == "" {
 				mimeType = "image/png"
@@ -278,8 +310,24 @@ func callGeminiAPI(prompt string, base64Data string, mimeType string) (string, e
 			parts = append(parts, map[string]interface{}{"inlineData": map[string]string{"mimeType": mimeType, "data": base64Data}})
 		}
 
-		jsonData, _ := json.Marshal(map[string]interface{}{"contents": []map[string]interface{}{{"parts": parts}}})
-		req, _ := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+		payload := map[string]interface{}{
+			"contents": []map[string]interface{}{{"parts": parts}},
+		}
+		if jsonMode {
+			payload["generationConfig"] = map[string]interface{}{
+				"temperature":      0.4,
+				"responseMimeType": "application/json",
+			}
+		}
+
+		jsonData, err := json.Marshal(payload)
+		if err != nil {
+			return "", err
+		}
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+		if err != nil {
+			return "", err
+		}
 		req.Header.Set("Content-Type", "application/json")
 		client := &http.Client{Timeout: 60 * time.Second}
 		resp, err := client.Do(req)
@@ -290,19 +338,46 @@ func callGeminiAPI(prompt string, base64Data string, mimeType string) (string, e
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			lastErr = fmt.Errorf("API Error: %s", string(body))
+			lastErr = fmt.Errorf("%s: %s", modelName, strings.TrimSpace(string(body)))
 			continue
 		}
-		var res map[string]interface{}
-		json.Unmarshal(body, &res)
-		if c, ok := res["candidates"].([]interface{}); ok && len(c) > 0 {
-			if text, ok := c[0].(map[string]interface{})["content"].(map[string]interface{})["parts"].([]interface{})[0].(map[string]interface{})["text"].(string); ok {
-				return text, nil
-			}
+		text, err := geminiTextFromBody(body)
+		if err != nil {
+			lastErr = fmt.Errorf("%s: %w", modelName, err)
+			continue
 		}
-		lastErr = fmt.Errorf("unexpected response structure from %s", modelName)
+		return text, nil
 	}
 	return "", fmt.Errorf("all models failed: %v", lastErr)
+}
+
+func geminiTextFromBody(body []byte) (string, error) {
+	var res struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		return "", err
+	}
+	if res.Error != nil && strings.TrimSpace(res.Error.Message) != "" {
+		return "", fmt.Errorf("%s", res.Error.Message)
+	}
+	for _, candidate := range res.Candidates {
+		for _, part := range candidate.Content.Parts {
+			if strings.TrimSpace(part.Text) != "" {
+				return part.Text, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("empty Gemini response")
 }
 
 func extractSkillsGradedHandler(w http.ResponseWriter, r *http.Request) {

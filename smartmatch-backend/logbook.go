@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -193,6 +194,7 @@ func EvaluateLogbookHandler(w http.ResponseWriter, r *http.Request) {
 
 	evaluation, err := evaluateLogbookWithGemini(tasks, blocker.String)
 	if err != nil {
+		log.Printf("logbook evaluate id=%d: %v", id, err)
 		if isTimeoutErr(err) {
 			writeError(w, http.StatusGatewayTimeout, "AI request timed out")
 			return
@@ -229,7 +231,7 @@ func evaluateLogbookWithGemini(tasks, blocker string) (LogbookAIEvaluation, erro
 - is_critical เป็น true เฉพาะเมื่ออุปสรรครุนแรง ควรแจ้งอาจารย์ด่วน เช่น ความปลอดภัย การกลั่นแกล้ง การไม่มีงานทำ ปัญหาสุขภาพ หรือละเมิดจรรยาบรรณ
 - ถ้าไม่มีอุปสรรคหรือเป็นปัญหาเล็กน้อย ให้ is_critical เป็น false`, strings.TrimSpace(tasks), blockerText)
 
-	raw, err := callGeminiAPI(prompt, "", "")
+	raw, err := callGeminiJSON(prompt)
 	if err != nil {
 		return LogbookAIEvaluation{}, err
 	}
@@ -241,11 +243,23 @@ func evaluateLogbookWithGemini(tasks, blocker string) (LogbookAIEvaluation, erro
 	return evaluation, nil
 }
 
-func parseLogbookEvaluation(raw string) (LogbookAIEvaluation, error) {
+func extractJSONObject(raw string) string {
 	clean := strings.TrimSpace(raw)
-	clean = strings.ReplaceAll(clean, "```json", "")
-	clean = strings.ReplaceAll(clean, "```", "")
+	clean = strings.TrimPrefix(clean, "```json")
+	clean = strings.TrimPrefix(clean, "```JSON")
+	clean = strings.TrimPrefix(clean, "```")
+	clean = strings.TrimSuffix(clean, "```")
 	clean = strings.TrimSpace(clean)
+	start := strings.Index(clean, "{")
+	end := strings.LastIndex(clean, "}")
+	if start >= 0 && end > start {
+		return strings.TrimSpace(clean[start : end+1])
+	}
+	return clean
+}
+
+func parseLogbookEvaluation(raw string) (LogbookAIEvaluation, error) {
+	clean := extractJSONObject(raw)
 	if clean == "" {
 		return LogbookAIEvaluation{}, errors.New("empty AI response")
 	}

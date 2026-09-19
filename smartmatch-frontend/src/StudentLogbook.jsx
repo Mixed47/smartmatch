@@ -708,9 +708,14 @@ export default function StudentLogbook() {
                     <div className="mt-5 overflow-hidden rounded-3xl bg-gradient-to-br from-[#4f46e5] via-indigo-500 to-violet-600 p-px shadow-lg shadow-indigo-500/20">
                       <div className="rounded-[1.4rem] bg-white/95 p-5 dark:bg-[#121212]/95">
                         <div className="flex flex-wrap items-center justify-between gap-3">
-                          <p className="m-0 text-[10px] font-black uppercase tracking-widest text-indigo-500">
-                            AI Dashboard · สรุปผลเล่มสหกิจ
-                          </p>
+                          <div>
+                            <p className="m-0 text-[10px] font-black uppercase tracking-widest text-indigo-500">
+                              AI Dashboard · สรุปผลเล่มสหกิจ
+                            </p>
+                            <h3 className="m-0 mt-1 text-base font-black text-slate-900 dark:text-white">
+                              คำแนะนำจาก AI
+                            </h3>
+                          </div>
                           {analysis.is_critical ? (
                             <span className="rounded-full bg-rose-500 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-white">
                               แจ้งอาจารย์ด่วน
@@ -725,12 +730,17 @@ export default function StudentLogbook() {
                           <div className="rounded-2xl bg-indigo-50 px-5 py-4 text-center dark:bg-indigo-500/10">
                             <p className="m-0 text-[10px] font-bold uppercase tracking-wide text-indigo-400">คะแนน</p>
                             <p className="m-0 mt-1 text-3xl font-black text-[#4f46e5] dark:text-indigo-300">
-                              {analysis.score}
+                              {analysis.score || '-'}
                             </p>
                           </div>
-                          <p className="m-0 text-sm leading-relaxed text-slate-700 dark:text-zinc-200">
-                            {analysis.feedback}
-                          </p>
+                          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4 dark:border-indigo-500/20 dark:bg-indigo-500/5">
+                            <p className="m-0 text-[10px] font-black uppercase tracking-widest text-indigo-400">
+                              Feedback
+                            </p>
+                            <p className="m-0 mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-zinc-200">
+                              {analysis.feedback}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>

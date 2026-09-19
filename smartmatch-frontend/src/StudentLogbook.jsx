@@ -85,6 +85,22 @@ function clearSession() {
   localStorage.removeItem('email');
 }
 
+function normalizeLogbookEntries(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  return [];
+}
+
+function toTimelineEntry(raw, fallback = {}) {
+  return {
+    id: raw.id ?? fallback.id ?? Date.now(),
+    date: raw.date || fallback.date || '',
+    tasks: raw.tasks || fallback.tasks || '',
+    blocker: raw.blocker ?? fallback.blocker ?? '',
+    created_at: raw.created_at || fallback.created_at || '',
+  };
+}
+
 function Spinner({ className = 'h-4 w-4' }) {
   return (
     <svg className={`animate-spin ${className}`} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -143,20 +159,23 @@ export default function StudentLogbook() {
     [navigate],
   );
 
-  const loadEntries = useCallback(async () => {
+  const loadEntries = useCallback(async ({ silent = false } = {}) => {
     const token = localStorage.getItem('token');
-    if (!token) return;
+    if (!token) return [];
 
-    setListLoading(true);
+    if (!silent) {
+      setListLoading(true);
+    }
     setListError('');
     try {
       const res = await fetch(`${API_BASE}/api/logbook`, {
+        cache: 'no-store',
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json().catch(() => ({}));
       if (res.status === 401) {
         handleAuthFailure(res.status, data.error);
-        return;
+        return [];
       }
       if (!res.ok) {
         setListError(
@@ -164,13 +183,18 @@ export default function StudentLogbook() {
             ? authErrorMessage(res.status, data.error)
             : data.error || 'โหลดประวัติไม่สำเร็จ',
         );
-        return;
+        return [];
       }
-      setEntries(Array.isArray(data.data) ? data.data : []);
+      const next = normalizeLogbookEntries(data);
+      setEntries((prev) => (next.length > 0 || prev.length === 0 ? next : prev));
+      return next;
     } catch {
       setListError('ไม่สามารถโหลดประวัติเล่มสหกิจได้');
+      return [];
     } finally {
-      setListLoading(false);
+      if (!silent) {
+        setListLoading(false);
+      }
     }
   }, [handleAuthFailure]);
 
@@ -211,6 +235,9 @@ export default function StudentLogbook() {
     }
 
     setLoading(true);
+    const savedDate = date;
+    const savedTasks = tasks.trim();
+    const savedBlocker = blocker.trim();
     try {
       const res = await fetch(`${API_BASE}/api/logbook`, {
         method: 'POST',
@@ -219,9 +246,9 @@ export default function StudentLogbook() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          date,
-          tasks: tasks.trim(),
-          blocker: blocker.trim(),
+          date: savedDate,
+          tasks: savedTasks,
+          blocker: savedBlocker,
         }),
       });
 
@@ -237,17 +264,23 @@ export default function StudentLogbook() {
         return;
       }
 
-      setSuccess('บันทึกเล่มสหกิจเรียบร้อยแล้ว');
-      setTasks('');
-      setBlocker('');
-      setSelectedHistoryDate(date);
-      const [savedYear, savedMonth] = date.split('-').map(Number);
+      const created = toTimelineEntry(data, {
+        date: savedDate,
+        tasks: savedTasks,
+        blocker: savedBlocker,
+      });
+      setEntries((prev) => [created, ...prev.filter((entry) => entry.id !== created.id)]);
+      setSelectedHistoryDate(savedDate);
+      const [savedYear, savedMonth] = savedDate.split('-').map(Number);
       if (savedYear && savedMonth) {
         setViewYear(savedYear);
         setViewMonth(savedMonth - 1);
       }
+      setSuccess('บันทึกเล่มสหกิจเรียบร้อยแล้ว');
+      setTasks('');
+      setBlocker('');
       setDate(todayISO());
-      await loadEntries();
+      await loadEntries({ silent: true });
     } catch {
       setError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
     } finally {
@@ -558,7 +591,7 @@ export default function StudentLogbook() {
             )}
           </div>
 
-          {listLoading && (
+          {listLoading && entries.length === 0 && (
             <div className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-white px-5 py-6 text-sm font-medium text-slate-500 dark:border-white/10 dark:bg-[#161616]">
               <Spinner />
               กำลังโหลดประวัติ...

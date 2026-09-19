@@ -23,11 +23,12 @@ type CreateLogbookRequest struct {
 }
 
 type StudentLogbookEntry struct {
-	ID        int64  `json:"id"`
-	Date      string `json:"date"`
-	Tasks     string `json:"tasks"`
-	Blocker   string `json:"blocker"`
-	CreatedAt string `json:"created_at"`
+	ID         int64                `json:"id"`
+	Date       string               `json:"date"`
+	Tasks      string               `json:"tasks"`
+	Blocker    string               `json:"blocker"`
+	CreatedAt  string               `json:"created_at"`
+	Evaluation *LogbookAIEvaluation `json:"evaluation,omitempty"`
 }
 
 type LogbookAIEvaluation struct {
@@ -127,7 +128,8 @@ func ListMyLogbookHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := db.Query(
-		`SELECT id, DATE_FORMAT(date, '%Y-%m-%d'), tasks, IFNULL(blocker, ''), DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s')
+		`SELECT id, DATE_FORMAT(date, '%Y-%m-%d'), tasks, IFNULL(blocker, ''), DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'),
+		        ai_feedback, ai_score, ai_is_critical
 		 FROM logbook_entries WHERE student_id = ? ORDER BY date DESC, id DESC`,
 		studentID,
 	)
@@ -140,10 +142,13 @@ func ListMyLogbookHandler(w http.ResponseWriter, r *http.Request) {
 	entries := []StudentLogbookEntry{}
 	for rows.Next() {
 		var e StudentLogbookEntry
-		if err := rows.Scan(&e.ID, &e.Date, &e.Tasks, &e.Blocker, &e.CreatedAt); err != nil {
+		var feedback, score sql.NullString
+		var critical sql.NullBool
+		if err := rows.Scan(&e.ID, &e.Date, &e.Tasks, &e.Blocker, &e.CreatedAt, &feedback, &score, &critical); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to read logbook entries")
 			return
 		}
+		e.Evaluation = evaluationFromColumns(feedback, score, critical)
 		entries = append(entries, e)
 	}
 
@@ -203,6 +208,21 @@ func EvaluateLogbookHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	criticalFlag := 0
+	if evaluation.IsCritical {
+		criticalFlag = 1
+	}
+	if _, err := db.Exec(
+		`UPDATE logbook_entries
+		 SET ai_feedback = ?, ai_score = ?, ai_is_critical = ?, ai_evaluated_at = NOW()
+		 WHERE id = ? AND student_id = ?`,
+		evaluation.Feedback, evaluation.Score, criticalFlag, id, studentID,
+	); err != nil {
+		log.Printf("logbook evaluate save id=%d: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "failed to save AI evaluation")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, evaluation)
 }
 
@@ -224,8 +244,8 @@ func evaluateLogbookWithGemini(tasks, blocker string) (LogbookAIEvaluation, erro
 - ตอบเป็น JSON ล้วนเท่านั้น ห้ามมี markdown หรือข้อความนอก JSON
 - โครงสร้างบังคับ:
 {
-  "feedback": "คำแนะนำภาษาไทย 2-4 ประโยค ชี้จุดเด่นและสิ่งที่ควรปรับในเล่มสหกิจ",
-  "score": "คะแนนประเมินในรูปแบบ n/10 เช่น 8/10",
+  "feedback": "คำแนะนำสั้นๆ เป็นภาษาไทย 2-4 ประโยค",
+  "score": "คะแนน 1-10 เช่น 8/10",
   "is_critical": true หรือ false
 }
 - is_critical เป็น true เฉพาะเมื่ออุปสรรครุนแรง ควรแจ้งอาจารย์ด่วน เช่น ความปลอดภัย การกลั่นแกล้ง การไม่มีงานทำ ปัญหาสุขภาพ หรือละเมิดจรรยาบรรณ
@@ -333,4 +353,41 @@ func isTimeoutErr(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded")
+}
+
+func ensureLogbookAIColumns() {
+	if db == nil {
+		return
+	}
+	statements := []string{
+		"ALTER TABLE logbook_entries ADD COLUMN ai_feedback TEXT",
+		"ALTER TABLE logbook_entries ADD COLUMN ai_score VARCHAR(32)",
+		"ALTER TABLE logbook_entries ADD COLUMN ai_is_critical TINYINT(1)",
+		"ALTER TABLE logbook_entries ADD COLUMN ai_evaluated_at TIMESTAMP NULL",
+	}
+	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil && !isDuplicateColumnErr(err) {
+			log.Printf("logbook schema migrate: %v", err)
+		}
+	}
+}
+
+func isDuplicateColumnErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate column") || strings.Contains(msg, "1060")
+}
+
+func evaluationFromColumns(feedback, score sql.NullString, critical sql.NullBool) *LogbookAIEvaluation {
+	text := strings.TrimSpace(feedback.String)
+	if !feedback.Valid || text == "" {
+		return nil
+	}
+	return &LogbookAIEvaluation{
+		Feedback:   text,
+		Score:      strings.TrimSpace(score.String),
+		IsCritical: critical.Valid && critical.Bool,
+	}
 }

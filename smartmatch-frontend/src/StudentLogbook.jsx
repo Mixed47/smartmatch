@@ -96,15 +96,29 @@ function normalizeLogbookEntries(payload) {
     .map((item) => toTimelineEntry(item));
 }
 
+function toAnalysis(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const ev = src.evaluation && typeof src.evaluation === 'object' ? src.evaluation : src;
+  const feedback = String(ev.feedback || '').trim();
+  if (!feedback) return null;
+  return {
+    feedback,
+    score: String(ev.score ?? ''),
+    is_critical: Boolean(ev.is_critical),
+  };
+}
+
 function toTimelineEntry(raw, fallback = {}) {
   const src = raw && typeof raw === 'object' ? raw : {};
   const fb = fallback && typeof fallback === 'object' ? fallback : {};
+  const evaluation = toAnalysis(src) || toAnalysis(fb);
   return {
     id: src.id ?? fb.id ?? `${src.date || fb.date || 'entry'}-${Date.now()}`,
     date: String(src.date || fb.date || ''),
     tasks: String(src.tasks || src.activity || fb.tasks || ''),
     blocker: String(src.blocker ?? fb.blocker ?? ''),
     created_at: String(src.created_at || fb.created_at || ''),
+    evaluation,
   };
 }
 
@@ -197,6 +211,16 @@ export default function StudentLogbook() {
         if (next.length === 0 && current.length === 0) return current;
         if (next.length === 0 && current.length > 0) return current;
         return next;
+      });
+      setAnalyses((prev) => {
+        const merged = { ...prev };
+        next.forEach((entry) => {
+          const analysis = toAnalysis(entry);
+          if (analysis) {
+            merged[entry.id] = analysis;
+          }
+        });
+        return merged;
       });
       return next;
     } catch {
@@ -341,14 +365,23 @@ export default function StudentLogbook() {
         return;
       }
 
+      const analysis = toAnalysis(data);
+      if (!analysis) {
+        setAiErrors((prev) => ({
+          ...prev,
+          [entryId]: 'วิเคราะห์สำเร็จ แต่ระบบไม่ได้ส่งคำแนะนำกลับมา',
+        }));
+        return;
+      }
       setAnalyses((prev) => ({
         ...prev,
-        [entryId]: {
-          feedback: data.feedback,
-          score: data.score,
-          is_critical: Boolean(data.is_critical),
-        },
+        [entryId]: analysis,
       }));
+      setEntries((prev) =>
+        (Array.isArray(prev) ? prev : []).map((entry) =>
+          String(entry.id) === String(entryId) ? { ...entry, evaluation: analysis } : entry,
+        ),
+      );
     } catch (err) {
       const aborted = err?.name === 'AbortError';
       setAiErrors((prev) => ({
@@ -640,9 +673,9 @@ export default function StudentLogbook() {
               />
             )}
             {visibleEntries.map((entry) => {
-              const analysis = analyses[entry.id];
-              const aiError = aiErrors[entry.id];
-              const isEvaluating = evaluatingId === entry.id;
+              const analysis = analyses[entry.id] || analyses[String(entry.id)] || entry.evaluation;
+              const aiError = aiErrors[entry.id] || aiErrors[String(entry.id)];
+              const isEvaluating = evaluatingId === entry.id || String(evaluatingId) === String(entry.id);
 
               return (
                 <article
@@ -670,13 +703,15 @@ export default function StudentLogbook() {
                       type="button"
                       disabled={isEvaluating}
                       onClick={() => handleEvaluate(entry.id)}
-                      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-indigo-50 px-4 py-3 text-sm font-bold text-[#4f46e5] transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
+                      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-indigo-50 px-4 py-3 text-sm font-bold text-[#4f46e5] transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-indigo-500/15 dark:text-indigo-200 dark:hover:bg-indigo-500/25"
                     >
                       {isEvaluating ? (
                         <>
                           <Spinner />
                           กำลังวิเคราะห์...
                         </>
+                      ) : analysis ? (
+                        '✨ วิเคราะห์อีกครั้ง'
                       ) : (
                         '✨ AI วิเคราะห์การทำงาน'
                       )}
@@ -684,16 +719,16 @@ export default function StudentLogbook() {
                   </div>
 
                   {isEvaluating && (
-                    <div className="mt-5 flex items-center gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-sm font-medium text-indigo-700 dark:border-indigo-500/20 dark:bg-indigo-500/10 dark:text-indigo-300">
+                    <div className="mt-5 flex items-center gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-sm font-medium text-indigo-700 dark:border-indigo-400/20 dark:bg-indigo-500/10 dark:text-indigo-200">
                       <Spinner className="h-5 w-5" />
                       AI กำลังอ่านบันทึกและสรุปคำแนะนำ กรุณารอสักครู่...
                     </div>
                   )}
 
                   {aiError && (
-                    <div className="mt-5 rounded-2xl border border-rose-200 bg-gradient-to-br from-rose-50 to-orange-50 p-5 dark:border-rose-500/20 dark:from-rose-500/10 dark:to-orange-500/5">
+                    <div className="mt-5 rounded-2xl border border-rose-200 bg-gradient-to-br from-rose-50 to-orange-50 p-5 dark:border-rose-500/30 dark:from-rose-500/15 dark:to-orange-500/10">
                       <p className="m-0 text-sm font-black text-rose-700 dark:text-rose-300">วิเคราะห์ไม่สำเร็จ</p>
-                      <p className="mt-1 text-sm leading-relaxed text-rose-600 dark:text-rose-400">{aiError}</p>
+                      <p className="mt-1 text-sm leading-relaxed text-rose-600 dark:text-rose-300">{aiError}</p>
                       <button
                         type="button"
                         onClick={() => handleEvaluate(entry.id)}
@@ -705,11 +740,11 @@ export default function StudentLogbook() {
                   )}
 
                   {analysis && !isEvaluating && (
-                    <div className="mt-5 overflow-hidden rounded-3xl bg-gradient-to-br from-[#4f46e5] via-indigo-500 to-violet-600 p-px shadow-lg shadow-indigo-500/20">
-                      <div className="rounded-[1.4rem] bg-white/95 p-5 dark:bg-[#121212]/95">
+                    <div className="mt-5 overflow-hidden rounded-3xl bg-gradient-to-br from-[#4f46e5] via-indigo-500 to-violet-600 p-px shadow-lg shadow-indigo-500/20 dark:shadow-indigo-900/40">
+                      <div className="rounded-[1.4rem] bg-white p-5 dark:bg-[#0f0f12]">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
-                            <p className="m-0 text-[10px] font-black uppercase tracking-widest text-indigo-500">
+                            <p className="m-0 text-[10px] font-black uppercase tracking-widest text-indigo-500 dark:text-indigo-300">
                               AI Dashboard · สรุปผลเล่มสหกิจ
                             </p>
                             <h3 className="m-0 mt-1 text-base font-black text-slate-900 dark:text-white">
@@ -721,20 +756,20 @@ export default function StudentLogbook() {
                               แจ้งอาจารย์ด่วน
                             </span>
                           ) : (
-                            <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                            <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300">
                               ไม่ถึงขั้นวิกฤต
                             </span>
                           )}
                         </div>
                         <div className="mt-4 grid gap-4 sm:grid-cols-[auto_1fr] sm:items-start">
-                          <div className="rounded-2xl bg-indigo-50 px-5 py-4 text-center dark:bg-indigo-500/10">
-                            <p className="m-0 text-[10px] font-bold uppercase tracking-wide text-indigo-400">คะแนน</p>
-                            <p className="m-0 mt-1 text-3xl font-black text-[#4f46e5] dark:text-indigo-300">
+                          <div className="rounded-2xl bg-indigo-50 px-5 py-4 text-center dark:bg-indigo-500/15">
+                            <p className="m-0 text-[10px] font-bold uppercase tracking-wide text-indigo-400 dark:text-indigo-300">คะแนน</p>
+                            <p className="m-0 mt-1 text-3xl font-black text-[#4f46e5] dark:text-indigo-200">
                               {analysis.score || '-'}
                             </p>
                           </div>
-                          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4 dark:border-indigo-500/20 dark:bg-indigo-500/5">
-                            <p className="m-0 text-[10px] font-black uppercase tracking-widest text-indigo-400">
+                          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4 dark:border-white/10 dark:bg-white/5">
+                            <p className="m-0 text-[10px] font-black uppercase tracking-widest text-indigo-400 dark:text-indigo-300">
                               Feedback
                             </p>
                             <p className="m-0 mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-zinc-200">

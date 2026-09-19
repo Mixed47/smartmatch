@@ -5,6 +5,15 @@ CREATE TABLE IF NOT EXISTS logbook_entries (
     tasks TEXT NOT NULL,
     blocker TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ai_feedback TEXT,
+    ai_score VARCHAR(32),
+    ai_is_critical TINYINT(1),
+    ai_evaluated_at TIMESTAMP NULL,
     INDEX idx_logbook_student_id (student_id),
     CONSTRAINT fk_logbook_student FOREIGN KEY (student_id) REFERENCES users(id)
 );
+
+ALTER TABLE logbook_entries ADD COLUMN ai_feedback TEXT;
+ALTER TABLE logbook_entries ADD COLUMN ai_score VARCHAR(32);
+ALTER TABLE logbook_entries ADD COLUMN ai_is_critical TINYINT(1);
+ALTER TABLE logbook_entries ADD COLUMN ai_evaluated_at TIMESTAMP NULL;

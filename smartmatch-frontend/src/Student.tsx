@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { Skill, JobMatch, Application } from './types';
+import { apiFetch, apiJson } from './apiClient';
 
 interface Message { id: number; application_id: string; sender: string; text: string; created_at: string; }
 interface LogEntry { date: string; category: string; activity: string; blocker: string; }
@@ -47,32 +48,45 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
   const [cancelReason, setCancelReason] = useState('');
 
   const fetchApplications = () => {
-    fetch('https://smartmatch-api.onrender.com/api/my-applications').then(r => r.json()).then(data => { setMyApps((data || []).filter((app: Application) => app.name.includes(profileData.firstName))); });
+    apiJson('/api/my-applications')
+      .then((data) => { setMyApps(Array.isArray(data) ? data : []); })
+      .catch(() => {});
   };
 
   useEffect(() => { fetchApplications(); }, [activeMenu, profileData.firstName]);
 
   useEffect(() => {
     if (activeMenu === '2' && skills.length > 0) {
-      fetch('https://smartmatch-api.onrender.com/api/match-jobs', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ skills })
-      }).then(r => r.json()).then(matchData => {
+      apiJson('/api/match-jobs', {
+        method: 'POST',
+        body: JSON.stringify({ skills }),
+      }).then((matchData) => {
         if (Array.isArray(matchData)) {
           const appliedTitles = myApps.map(a => a.job_title);
           const freshJobs = matchData.filter((job: JobMatch) => !appliedTitles.includes(job.job_title));
           setMatchedJobs(freshJobs.sort((a, b) => b.match_percentage - a.match_percentage));
         }
-      });
+      }).catch(() => {});
     }
   }, [activeMenu, skills, myApps]);
 
   useEffect(() => {
-    if (activeMenu === '3') { fetch('https://smartmatch-api.onrender.com/api/logbook').then(r => r.json()).then(data => { if (Array.isArray(data)) setLogs(data.map((l: any) => ({ date: l.created_at, category: l.category, activity: l.activity, blocker: l.blocker }))); }); }
+    if (activeMenu === '3') {
+      apiJson('/api/logbook').then((data) => {
+        const list = Array.isArray(data) ? data : (data?.data || []);
+        setLogs(list.map((l: any) => ({
+          date: l.date || l.created_at,
+          category: l.category || 'Daily',
+          activity: l.activity || l.tasks || '',
+          blocker: l.blocker,
+        })));
+      }).catch(() => {});
+    }
   }, [activeMenu]);
 
   useEffect(() => {
     if (!activeChatId) return;
-    const fetchChat = () => fetch(`https://smartmatch-api.onrender.com/api/chat/messages?application_id=${activeChatId}`).then(r => r.json()).then(data => setChatMessages(data || []));
+    const fetchChat = () => apiJson(`/api/chat/messages?application_id=${encodeURIComponent(activeChatId)}`).then((data) => setChatMessages(data || [])).catch(() => {});
     fetchChat(); const interval = setInterval(fetchChat, 2000); return () => clearInterval(interval);
   }, [activeChatId]);
 
@@ -85,7 +99,7 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
     if (file) formData.append('resume', file);
     formData.append('experience', expText);
     try {
-      const res = await fetch('https://smartmatch-api.onrender.com/api/extract-skills-graded', { method: 'POST', body: formData });
+      const res = await apiFetch('/api/extract-skills-graded', { method: 'POST', body: formData });
       const data = await res.json();
       const newSkills = data.skills || [];
       setSkills(newSkills);
@@ -93,10 +107,10 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
       setUploadedResumeUrl(data.resume_url || '');
       showToast('AI วิเคราะห์ทักษะสำเร็จ!', 'info');
 
-      const resMatch = await fetch('https://smartmatch-api.onrender.com/api/match-jobs', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ skills: newSkills })
+      const matchData = await apiJson('/api/match-jobs', {
+        method: 'POST',
+        body: JSON.stringify({ skills: newSkills }),
       });
-      const matchData = await resMatch.json();
       if (Array.isArray(matchData)) {
         const appliedTitles = myApps.map(a => a.job_title);
         const freshJobs = matchData.filter((job: JobMatch) => !appliedTitles.includes(job.job_title));
@@ -109,12 +123,12 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
   const handleSwipe = (type: 'apply' | 'pass', job: JobMatch) => {
     setSwipeDirection(type === 'apply' ? 'right' : 'left');
     if (type === 'apply') {
-      fetch('https://smartmatch-api.onrender.com/api/apply', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: profileData.firstName + ' (' + profileData.nickname + ')', job_title: job.job_title, company: job.company, match_percentage: job.match_percentage, skills: skills.map(s => `${s.name} (เกรด ${s.grade})`), resume_url: uploadedResumeUrl })
+      apiJson('/api/apply', {
+        method: 'POST',
+        body: JSON.stringify({ name: profileData.firstName + ' (' + profileData.nickname + ')', job_title: job.job_title, company: job.company, match_percentage: job.match_percentage, skills: skills.map(s => `${s.name} (เกรด ${s.grade})`), resume_url: uploadedResumeUrl }),
       }).then(() => {
         showToast(`ส่งใบสมัครไปยัง ${job.company} แล้ว!`, 'success');
-        fetchApplications(); 
+        fetchApplications();
       }).catch(() => {});
     }
     setTimeout(() => { setMatchedJobs(prev => prev.slice(1)); setSwipeDirection(null); }, 300);
@@ -122,20 +136,20 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
 
   const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault(); if (!typedMessage.trim() || !activeChatId) return;
-    await fetch('https://smartmatch-api.onrender.com/api/chat/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ application_id: activeChatId, sender: 'student', text: typedMessage.trim() }) });
+    await apiJson('/api/chat/send', { method: 'POST', body: JSON.stringify({ application_id: activeChatId, text: typedMessage.trim() }) });
     setTypedMessage('');
   };
 
   const submitCancelRequest = () => {
     if (!cancelReason.trim()) { showToast('กรุณาระบุเหตุผลการสละสิทธิ์', 'error'); return; }
-    fetch('https://smartmatch-api.onrender.com/api/request-cancel', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ application_id: cancelModal.appId, student_name: profileData.firstName, company_name: cancelModal.companyName, reason: cancelReason })
+    apiJson('/api/request-cancel', {
+      method: 'POST',
+      body: JSON.stringify({ application_id: cancelModal.appId, student_name: profileData.firstName, company_name: cancelModal.companyName, reason: cancelReason }),
     }).then(() => {
       showToast('ส่งคำร้องให้อาจารย์สำเร็จ กรุณารอการอนุมัติ', 'success');
       setCancelModal({ show: false, appId: '', companyName: '' });
       setCancelReason('');
-    });
+    }).catch(() => showToast('ส่งคำร้องไม่สำเร็จ', 'error'));
   };
 
   const generateAI = async (type: 'email' | 'interview', app: Application) => {
@@ -143,8 +157,7 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
       const endpoint = type === 'email' ? 'generate-email' : 'generate-questions';
       const body = type === 'email' ? { name: app.name, job_title: app.job_title, company: app.company, skills: [] } : { job_title: app.job_title };
       try {
-        const res = await fetch(`https://smartmatch-api.onrender.com/api/${endpoint}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        const data = await res.json();
+        const data = await apiJson(`/api/${endpoint}`, { method: 'POST', body: JSON.stringify(body) });
         setAiContent({ ...aiContent, [app.id]: { type, data: type === 'email' ? data.email : data.questions } });
         showToast('ประมวลผลเสร็จสมบูรณ์!', 'success');
       } catch (e) { showToast('การประมวลผลล้มเหลว', 'error'); } finally { setAiLoading(false); }
@@ -152,10 +165,25 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
 
   const handleSaveLogbook = async () => {
     try {
-      await fetch('https://smartmatch-api.onrender.com/api/logbook', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: profileData.firstName, category: logCategory, activity: logActivity, blocker: logBlocker }) });
+      await apiJson('/api/logbook', {
+        method: 'POST',
+        body: JSON.stringify({
+          date: new Date().toISOString().split('T')[0],
+          tasks: logActivity,
+          blocker: logBlocker,
+        }),
+      });
       showToast('บันทึกสมุดสหกิจสำเร็จ!', 'success');
       setLogActivity(''); setLogBlocker('');
-      fetch('https://smartmatch-api.onrender.com/api/logbook').then(r => r.json()).then(data => { if (Array.isArray(data)) setLogs(data.map((l: any) => ({ date: l.created_at, category: l.category, activity: l.activity, blocker: l.blocker }))); });
+      apiJson('/api/logbook').then((data) => {
+        const list = Array.isArray(data) ? data : (data?.data || []);
+        setLogs(list.map((l: any) => ({
+          date: l.date || l.created_at,
+          category: l.category || 'Daily',
+          activity: l.activity || l.tasks || '',
+          blocker: l.blocker,
+        })));
+      }).catch(() => {});
     } catch (e) { showToast('เกิดข้อผิดพลาดในการบันทึก', 'error'); }
   };
 

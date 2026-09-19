@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { ParsedSkill, Application } from './types';
+import { apiJson, fileURL } from './apiClient';
 
 interface Message { id: number; application_id: string; sender: string; text: string; created_at: string; }
 
@@ -40,34 +41,33 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
   const [evalComment, setEvalComment] = useState('');
 
   const fetchMyJobs = () => {
-    fetch('https://smartmatch-api.onrender.com/api/jobs')
-      .then(res => res.json())
-      .then(data => {
+    apiJson('/api/jobs')
+      .then((data) => {
         if (data.data) {
-          const mine = data.data.filter((j: any) => j.company.trim().toLowerCase() === profileData.companyName.trim().toLowerCase());
-          setMyPostedJobs(mine.reverse());
+          setMyPostedJobs([...data.data].reverse());
         }
-      });
+      })
+      .catch(() => {});
   };
 
   useEffect(() => { fetchMyJobs(); }, [activeMenu, profileData.companyName]);
 
   useEffect(() => {
-    const fetchApps = () => { fetch('https://smartmatch-api.onrender.com/api/applications').then(r => r.json()).then(data => { if (Array.isArray(data)) setApplicants([...data].sort((a: any, b: any) => b.match_percentage - a.match_percentage)); }); };
+    const fetchApps = () => { apiJson('/api/applications').then((data) => { if (Array.isArray(data)) setApplicants([...data].sort((a: any, b: any) => b.match_percentage - a.match_percentage)); }).catch(() => {}); };
     if (activeMenu === '5' || activeMenu === 'hr-home') fetchApps();
     const interval = setInterval(() => { if (activeMenu === '5' || activeMenu === 'hr-home') fetchApps(); }, 3000);
     return () => clearInterval(interval);
   }, [activeMenu]);
 
   useEffect(() => {
-    const fetchMatches = () => { fetch('https://smartmatch-api.onrender.com/api/hr-matches').then(r=>r.json()).then(data => setMatchedList(data || [])); };
+    const fetchMatches = () => { apiJson('/api/hr-matches').then((data) => setMatchedList(data || [])).catch(() => {}); };
     if (activeMenu === '6' || activeMenu === 'hr-home') fetchMatches();
     const interval = setInterval(fetchMatches, 3000); return () => clearInterval(interval);
   }, [activeMenu]);
 
   useEffect(() => {
     if (!activeChatId) return;
-    const fetchChat = () => fetch(`https://smartmatch-api.onrender.com/api/chat/messages?application_id=${activeChatId}`).then(r=>r.json()).then(data => setChatMessages(data || []));
+    const fetchChat = () => apiJson(`/api/chat/messages?application_id=${encodeURIComponent(activeChatId)}`).then((data) => setChatMessages(data || [])).catch(() => {});
     fetchChat(); const interval = setInterval(fetchChat, 2000); return () => clearInterval(interval);
   }, [activeChatId]);
 
@@ -78,8 +78,7 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
     if (!jd.trim()) return;
     setIsAnalyzing(true);
     try {
-      const res = await fetch('https://smartmatch-api.onrender.com/api/extract-jd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: jd }) });
-      const data = await res.json();
+      const data = await apiJson('/api/extract-jd', { method: 'POST', body: JSON.stringify({ text: jd }) });
       if (data.skills) { setExtractedSkills(data.skills.map((s: any) => ({ skill: s.skill, weight: (s.weight || 'STANDARD').toUpperCase() }))); showToast('สกัดทักษะจาก JD เสร็จสมบูรณ์', 'success'); }
     } catch (e) { showToast('เกิดข้อผิดพลาดในการวิเคราะห์ AI', 'error'); } finally { setIsAnalyzing(false); }
   };
@@ -90,39 +89,37 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
     e.preventDefault();
     if (!newJob.title || extractedSkills.length === 0) { showToast('ข้อมูลไม่ครบ หรือยังไม่ได้วิเคราะห์ JD', 'error'); return; }
     try {
-      const response = await fetch('https://smartmatch-api.onrender.com/api/jobs', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      await apiJson('/api/jobs', {
+        method: 'POST',
         body: JSON.stringify({ title: newJob.title, company: profileData.companyName, required_skills: extractedSkills }),
       });
-      if (response.ok) {
-        showToast(`ลงประกาศงาน ${newJob.title} สำเร็จ!`, 'success'); 
-        const newJobData = { title: newJob.title, company: profileData.companyName, skills: extractedSkills };
-        setMyPostedJobs([newJobData, ...myPostedJobs]);
-        setNewJob({ title: '' }); setExtractedSkills([]);
-      }
+      showToast(`ลงประกาศงาน ${newJob.title} สำเร็จ!`, 'success');
+      const newJobData = { title: newJob.title, company: profileData.companyName, skills: extractedSkills };
+      setMyPostedJobs([newJobData, ...myPostedJobs]);
+      setNewJob({ title: '' }); setExtractedSkills([]);
     } catch (error) { showToast('ระบบมีปัญหา ไม่สามารถประกาศงานได้', 'error'); }
   };
 
   const handleAction = (type: 'like' | 'pass', applicantId: string) => {
     setSwipeDirection(type === 'like' ? 'right' : 'left');
-    fetch('https://smartmatch-api.onrender.com/api/update-status', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id: applicantId, status: type === 'like' ? 'Matched' : 'Rejected' }) }).then(() => { if (type === 'like') showToast('Match สำเร็จ!', 'success'); }).catch(() => {});
+    apiJson('/api/update-status', { method: 'POST', body: JSON.stringify({ id: applicantId, status: type === 'like' ? 'Matched' : 'Rejected' }) }).then(() => { if (type === 'like') showToast('Match สำเร็จ!', 'success'); }).catch(() => {});
     setTimeout(() => { setApplicants(prev => prev.slice(1)); setSwipeDirection(null); }, 300);
   };
 
   const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault(); if (!typedMessage.trim() || !activeChatId) return;
-    await fetch('https://smartmatch-api.onrender.com/api/chat/send', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ application_id: activeChatId, sender: 'company', text: typedMessage.trim() }) });
+    await apiJson('/api/chat/send', { method: 'POST', body: JSON.stringify({ application_id: activeChatId, text: typedMessage.trim() }) });
     setTypedMessage('');
   };
 
   const submitEvaluation = () => {
     const scoreNum = Number(evalScore);
     if (isNaN(scoreNum) || scoreNum < 0 || scoreNum > 100 || evalScore === '') { showToast('กรุณาระบุคะแนนให้ถูกต้อง (0-100)', 'error'); return; }
-    fetch('https://smartmatch-api.onrender.com/api/evaluate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ application_id: evalModal.appId, score: scoreNum, comment: evalComment }) }).then(() => {
+    apiJson('/api/evaluate', { method: 'POST', body: JSON.stringify({ application_id: evalModal.appId, score: scoreNum, comment: evalComment }) }).then(() => {
       showToast('บันทึกการประเมินสำเร็จ สถานะเปลี่ยนเป็น Completed', 'success');
       setEvalModal({ show: false, appId: '', studentName: '' }); setEvalScore(''); setEvalComment('');
-      fetch('https://smartmatch-api.onrender.com/api/hr-matches').then(r=>r.json()).then(data => setMatchedList(data || []));
-    });
+      apiJson('/api/hr-matches').then((data) => setMatchedList(data || [])).catch(() => {});
+    }).catch(() => showToast('บันทึกการประเมินไม่สำเร็จ', 'error'));
   };
 
   return (
@@ -313,7 +310,7 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
                 </div>
                 
                 <div className="flex items-center justify-center w-full h-64 p-3 mb-6 border bg-zinc-50 dark:bg-[#0a0a0a] rounded-2xl border-zinc-200/50 dark:border-white/5">
-                  <img src={applicants[0].resume_url || 'https://via.placeholder.com/150?text=No+Resume+Image'} alt="Resume" className="object-contain max-h-full border shadow-sm border-zinc-200 dark:border-white/10 rounded-xl opacity-90 dark:opacity-80" />
+                  <img src={fileURL(applicants[0].resume_url) || 'https://via.placeholder.com/150?text=No+Resume+Image'} alt="Resume" className="object-contain max-h-full border shadow-sm border-zinc-200 dark:border-white/10 rounded-xl opacity-90 dark:opacity-80" />
                 </div>
 
                 <div className="p-5 mb-8 text-left border bg-zinc-50/80 dark:bg-white/5 rounded-2xl border-zinc-100 dark:border-white/5">

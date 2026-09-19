@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { CancelRequest, Evaluation } from './types';
+import { apiJson } from './apiClient';
 
 interface Application { id: string; name: string; job_title: string; company: string; status: string; }
 interface Message { id: number; application_id: string; sender: string; text: string; created_at: string; }
@@ -28,10 +29,10 @@ export default function Teacher({ showToast }: { activeMenu?: string; setActiveM
   const notify = (msg: string, type: 'success' | 'error' | 'info' = 'success') => { if (showToast) showToast(msg, type); };
 
   const loadData = () => {
-    fetch('https://smartmatch-api.onrender.com/api/my-applications').then(r=>r.json()).then(data => setApplications(data || []));
-    fetch('https://smartmatch-api.onrender.com/api/logbook').then(r=>r.json()).then(data => setLogs(data || []));
-    fetch('https://smartmatch-api.onrender.com/api/cancel-requests').then(r=>r.json()).then(data => setCancelRequests(data || [])); 
-    fetch('https://smartmatch-api.onrender.com/api/evaluations').then(r=>r.json()).then(data => setEvaluations(data || []));
+    apiJson('/api/my-applications').then((data) => setApplications(data || [])).catch(() => {});
+    apiJson('/api/logbook').then((data) => setLogs(Array.isArray(data) ? data : (data?.data || []))).catch(() => {});
+    apiJson('/api/cancel-requests').then((data) => setCancelRequests(data || [])).catch(() => {});
+    apiJson('/api/evaluations').then((data) => setEvaluations(data || [])).catch(() => {});
   };
 
   useEffect(() => { 
@@ -42,20 +43,20 @@ export default function Teacher({ showToast }: { activeMenu?: string; setActiveM
 
   useEffect(() => {
     if (!activeChatId) return;
-    const fetchChat = () => fetch(`https://smartmatch-api.onrender.com/api/chat/messages?application_id=${activeChatId}`).then(r=>r.json()).then(data => setChatMessages(data || []));
+    const fetchChat = () => apiJson(`/api/chat/messages?application_id=${encodeURIComponent(activeChatId)}`).then((data) => setChatMessages(data || [])).catch(() => {});
     fetchChat(); const interval = setInterval(fetchChat, 2000); return () => clearInterval(interval);
   }, [activeChatId]);
 
   const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault(); if (!typedMessage.trim() || !activeChatId) return;
-    await fetch('https://smartmatch-api.onrender.com/api/chat/send', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ application_id: activeChatId, sender: 'teacher', text: typedMessage.trim() }) });
+    await apiJson('/api/chat/send', { method: 'POST', body: JSON.stringify({ application_id: activeChatId, text: typedMessage.trim() }) });
     setTypedMessage('');
   };
 
   const handleResolveRequest = async (id: number, appId: string, action: 'approve' | 'reject') => {
-    await fetch('https://smartmatch-api.onrender.com/api/resolve-cancel', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, application_id: appId, action })
+    await apiJson('/api/resolve-cancel', {
+      method: 'POST',
+      body: JSON.stringify({ id, application_id: appId, action }),
     });
     notify(action === 'approve' ? 'อนุมัติการสละสิทธิ์แล้ว' : 'ปฏิเสธคำร้องแล้ว', 'success');
     loadData();

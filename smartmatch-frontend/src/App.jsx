@@ -15,17 +15,11 @@ function applySavedTheme() {
   }
 }
 
-function ProtectedRoute({ children }) {
-  const token = localStorage.getItem('token');
-  if (!token) return <Navigate to="/login" replace />;
-  return children;
-}
-
-function StudentRoute({ children }) {
+function RoleRoute({ roles, children }) {
   const token = localStorage.getItem('token');
   const role = localStorage.getItem('role');
   if (!token) return <Navigate to="/login" replace />;
-  if (role !== 'student') return <Navigate to="/" replace />;
+  if (roles && !roles.includes(role)) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -52,33 +46,33 @@ export default function App() {
         <Route
           path="/student"
           element={
-            <ProtectedRoute>
+            <RoleRoute roles={['student']}>
               <Dashboard initialRole="student" />
-            </ProtectedRoute>
+            </RoleRoute>
           }
         />
         <Route
           path="/student/logbook"
           element={
-            <StudentRoute>
+            <RoleRoute roles={['student']}>
               <StudentLogbook />
-            </StudentRoute>
+            </RoleRoute>
           }
         />
         <Route
           path="/company"
           element={
-            <ProtectedRoute>
+            <RoleRoute roles={['company']}>
               <Dashboard initialRole="company" />
-            </ProtectedRoute>
+            </RoleRoute>
           }
         />
         <Route
           path="/teacher"
           element={
-            <ProtectedRoute>
+            <RoleRoute roles={['teacher']}>
               <Dashboard initialRole="teacher" />
-            </ProtectedRoute>
+            </RoleRoute>
           }
         />
         <Route path="*" element={<Navigate to="/" replace />} />

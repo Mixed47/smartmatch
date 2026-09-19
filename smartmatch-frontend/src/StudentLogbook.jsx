@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { apiJson, clearAuthSession } from './apiClient';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 const AI_TIMEOUT_MS = 70000;
 
 const THAI_MONTHS = [
@@ -79,10 +79,7 @@ function aiErrorMessage(status, serverError, aborted) {
 }
 
 function clearSession() {
-  localStorage.removeItem('token');
-  localStorage.removeItem('role');
-  localStorage.removeItem('user_id');
-  localStorage.removeItem('email');
+  clearAuthSession();
 }
 
 function normalizeLogbookEntries(payload) {
@@ -188,23 +185,7 @@ export default function StudentLogbook() {
     }
     setListError('');
     try {
-      const res = await fetch(`${API_BASE}/api/logbook`, {
-        cache: 'no-store',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 401) {
-        handleAuthFailure(res.status, data?.error);
-        return [];
-      }
-      if (!res.ok) {
-        setListError(
-          res.status === 401 || res.status === 403
-            ? authErrorMessage(res.status, data?.error)
-            : data?.error || 'โหลดประวัติไม่สำเร็จ',
-        );
-        return [];
-      }
+      const data = await apiJson('/api/logbook', { cache: 'no-store' });
       const next = normalizeLogbookEntries(data);
       setEntries((prev) => {
         const current = Array.isArray(prev) ? prev : [];
@@ -223,8 +204,11 @@ export default function StudentLogbook() {
         return merged;
       });
       return next;
-    } catch {
-      setListError('ไม่สามารถโหลดประวัติเล่มสหกิจได้');
+    } catch (err) {
+      if (err?.status === 401) {
+        return [];
+      }
+      setListError(err?.data?.error || 'ไม่สามารถโหลดประวัติเล่มสหกิจได้');
       return [];
     } finally {
       if (!silent) {
@@ -278,30 +262,14 @@ export default function StudentLogbook() {
     const savedTasks = tasks.trim();
     const savedBlocker = blocker.trim();
     try {
-      const res = await fetch(`${API_BASE}/api/logbook`, {
+      const data = await apiJson('/api/logbook', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
         body: JSON.stringify({
           date: savedDate,
           tasks: savedTasks,
           blocker: savedBlocker,
         }),
       });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (res.status === 401) {
-        handleAuthFailure(res.status, data.error);
-        return;
-      }
-
-      if (!res.ok) {
-        setError(authErrorMessage(res.status, data.error));
-        return;
-      }
 
       const created = toTimelineEntry(data, {
         date: savedDate,
@@ -320,8 +288,11 @@ export default function StudentLogbook() {
       setBlocker('');
       setDate(todayISO());
       await loadEntries(true);
-    } catch {
-      setError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
+    } catch (err) {
+      if (err?.status === 401) {
+        return;
+      }
+      setError(err?.data?.error ? authErrorMessage(err.status, err.data.error) : 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
     } finally {
       setLoading(false);
     }
@@ -345,25 +316,10 @@ export default function StudentLogbook() {
     const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
 
     try {
-      const res = await fetch(`${API_BASE}/api/logbook/${entryId}/evaluate`, {
+      const data = await apiJson(`/api/logbook/${entryId}/evaluate`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
         signal: controller.signal,
       });
-      const data = await res.json().catch(() => ({}));
-
-      if (res.status === 401) {
-        handleAuthFailure(res.status, data.error);
-        return;
-      }
-
-      if (!res.ok) {
-        setAiErrors((prev) => ({
-          ...prev,
-          [entryId]: aiErrorMessage(res.status, data.error, false),
-        }));
-        return;
-      }
 
       const analysis = toAnalysis(data);
       if (!analysis) {
@@ -383,12 +339,15 @@ export default function StudentLogbook() {
         ),
       );
     } catch (err) {
+      if (err?.status === 401) {
+        return;
+      }
       const aborted = err?.name === 'AbortError';
       setAiErrors((prev) => ({
         ...prev,
         [entryId]: aborted
           ? aiErrorMessage(0, '', true)
-          : 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์เพื่อวิเคราะห์ได้',
+          : aiErrorMessage(err?.status, err?.data?.error, false),
       }));
     } finally {
       clearTimeout(timer);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080';
@@ -24,10 +24,10 @@ function toISODate(year, monthIndex, day) {
 }
 
 function formatThaiDate(iso) {
-  if (!iso) return '';
+  if (typeof iso !== 'string' || !iso) return '';
   const [y, m, d] = iso.split('-').map(Number);
   if (!y || !m || !d) return iso;
-  return `${d} ${THAI_MONTHS[m - 1]} ${y + 543}`;
+  return `${d} ${THAI_MONTHS[m - 1] || ''} ${y + 543}`.trim();
 }
 
 function buildCalendarCells(year, monthIndex) {
@@ -86,18 +86,25 @@ function clearSession() {
 }
 
 function normalizeLogbookEntries(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (Array.isArray(payload?.data)) return payload.data;
-  return [];
+  const list = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.data)
+      ? payload.data
+      : [];
+  return list
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => toTimelineEntry(item));
 }
 
 function toTimelineEntry(raw, fallback = {}) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const fb = fallback && typeof fallback === 'object' ? fallback : {};
   return {
-    id: raw.id ?? fallback.id ?? Date.now(),
-    date: raw.date || fallback.date || '',
-    tasks: raw.tasks || fallback.tasks || '',
-    blocker: raw.blocker ?? fallback.blocker ?? '',
-    created_at: raw.created_at || fallback.created_at || '',
+    id: src.id ?? fb.id ?? `${src.date || fb.date || 'entry'}-${Date.now()}`,
+    date: String(src.date || fb.date || ''),
+    tasks: String(src.tasks || src.activity || fb.tasks || ''),
+    blocker: String(src.blocker ?? fb.blocker ?? ''),
+    created_at: String(src.created_at || fb.created_at || ''),
   };
 }
 
@@ -112,7 +119,7 @@ function Spinner({ className = 'h-4 w-4' }) {
 
 export default function StudentLogbook() {
   const navigate = useNavigate();
-  const [date, setDate] = useState(todayISO);
+  const [date, setDate] = useState(() => todayISO());
   const [tasks, setTasks] = useState('');
   const [blocker, setBlocker] = useState('');
   const [error, setError] = useState('');
@@ -128,7 +135,7 @@ export default function StudentLogbook() {
   const [viewMonth, setViewMonth] = useState(() => new Date().getMonth());
   const [selectedHistoryDate, setSelectedHistoryDate] = useState(null);
 
-  const hasBlocker = blocker.trim().length > 0;
+  const hasBlocker = String(blocker || '').trim().length > 0;
   const email = useMemo(() => localStorage.getItem('email') || '', []);
   const today = todayISO();
   const calendarCells = useMemo(
@@ -136,18 +143,17 @@ export default function StudentLogbook() {
     [viewYear, viewMonth],
   );
   const loggedDateSet = useMemo(
-    () => new Set(entries.map((entry) => entry.date)),
+    () => new Set((Array.isArray(entries) ? entries : []).map((entry) => entry.date).filter(Boolean)),
     [entries],
   );
   const monthLoggedCount = useMemo(() => {
     const prefix = `${viewYear}-${pad2(viewMonth + 1)}`;
-    return loggedDateSet.size
-      ? [...loggedDateSet].filter((iso) => iso.startsWith(prefix)).length
-      : 0;
+    return [...loggedDateSet].filter((iso) => iso.startsWith(prefix)).length;
   }, [loggedDateSet, viewYear, viewMonth]);
   const visibleEntries = useMemo(() => {
-    if (!selectedHistoryDate) return entries;
-    return entries.filter((entry) => entry.date === selectedHistoryDate);
+    const list = Array.isArray(entries) ? entries : [];
+    if (!selectedHistoryDate) return list;
+    return list.filter((entry) => entry.date === selectedHistoryDate);
   }, [entries, selectedHistoryDate]);
 
   const handleAuthFailure = useCallback(
@@ -159,7 +165,7 @@ export default function StudentLogbook() {
     [navigate],
   );
 
-  const loadEntries = useCallback(async ({ silent = false } = {}) => {
+  const loadEntries = useCallback(async (silent = false) => {
     const token = localStorage.getItem('token');
     if (!token) return [];
 
@@ -174,19 +180,24 @@ export default function StudentLogbook() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.status === 401) {
-        handleAuthFailure(res.status, data.error);
+        handleAuthFailure(res.status, data?.error);
         return [];
       }
       if (!res.ok) {
         setListError(
           res.status === 401 || res.status === 403
-            ? authErrorMessage(res.status, data.error)
-            : data.error || 'โหลดประวัติไม่สำเร็จ',
+            ? authErrorMessage(res.status, data?.error)
+            : data?.error || 'โหลดประวัติไม่สำเร็จ',
         );
         return [];
       }
       const next = normalizeLogbookEntries(data);
-      setEntries((prev) => (next.length > 0 || prev.length === 0 ? next : prev));
+      setEntries((prev) => {
+        const current = Array.isArray(prev) ? prev : [];
+        if (next.length === 0 && current.length === 0) return current;
+        if (next.length === 0 && current.length > 0) return current;
+        return next;
+      });
       return next;
     } catch {
       setListError('ไม่สามารถโหลดประวัติเล่มสหกิจได้');
@@ -198,19 +209,23 @@ export default function StudentLogbook() {
     }
   }, [handleAuthFailure]);
 
+  const loadEntriesRef = useRef(loadEntries);
+  loadEntriesRef.current = loadEntries;
+
   useEffect(() => {
     const token = localStorage.getItem('token');
     const role = localStorage.getItem('role');
     if (!token) {
       navigate('/login', { replace: true });
-      return;
+      return undefined;
     }
     if (role !== 'student') {
       navigate('/', { replace: true });
-      return;
+      return undefined;
     }
-    loadEntries();
-  }, [navigate, loadEntries]);
+    void loadEntriesRef.current(false);
+    return undefined;
+  }, [navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -280,7 +295,7 @@ export default function StudentLogbook() {
       setTasks('');
       setBlocker('');
       setDate(todayISO());
-      await loadEntries({ silent: true });
+      await loadEntries(true);
     } catch {
       setError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
     } finally {
@@ -631,7 +646,7 @@ export default function StudentLogbook() {
 
               return (
                 <article
-                  key={entry.id}
+                  key={String(entry.id)}
                   className="relative rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-[#161616] sm:pl-12"
                 >
                   <span className="absolute left-4 top-7 hidden h-3.5 w-3.5 rounded-full border-2 border-[#4f46e5] bg-white sm:block dark:bg-[#161616]" />

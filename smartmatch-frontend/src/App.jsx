@@ -2,10 +2,19 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import Login from './Login';
 import Register from './Register';
 import Dashboard from './App.tsx';
+import StudentLogbook from './StudentLogbook';
 
 function ProtectedRoute({ children }) {
   const token = localStorage.getItem('token');
   if (!token) return <Navigate to="/login" replace />;
+  return children;
+}
+
+function StudentRoute({ children }) {
+  const token = localStorage.getItem('token');
+  const role = localStorage.getItem('role');
+  if (!token) return <Navigate to="/login" replace />;
+  if (role !== 'student') return <Navigate to="/" replace />;
   return children;
 }
 
@@ -31,6 +40,14 @@ export default function App() {
             <ProtectedRoute>
               <Dashboard initialRole="student" />
             </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/logbook"
+          element={
+            <StudentRoute>
+              <StudentLogbook />
+            </StudentRoute>
           }
         />
         <Route

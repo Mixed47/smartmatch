@@ -4,12 +4,43 @@ import { Link, useNavigate } from 'react-router-dom';
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 const AI_TIMEOUT_MS = 70000;
 
+const THAI_MONTHS = [
+  'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
+];
+const WEEKDAYS = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
 function todayISO() {
   const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+}
+
+function toISODate(year, monthIndex, day) {
+  return `${year}-${pad2(monthIndex + 1)}-${pad2(day)}`;
+}
+
+function formatThaiDate(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  return `${d} ${THAI_MONTHS[m - 1]} ${y + 543}`;
+}
+
+function buildCalendarCells(year, monthIndex) {
+  const firstWeekday = new Date(year, monthIndex, 1).getDay();
+  const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+  const cells = Array.from({ length: firstWeekday }, () => null);
+  for (let day = 1; day <= lastDay; day += 1) {
+    cells.push(day);
+  }
+  while (cells.length % 7 !== 0) {
+    cells.push(null);
+  }
+  return cells;
 }
 
 function authErrorMessage(status, serverError) {
@@ -77,9 +108,31 @@ export default function StudentLogbook() {
   const [evaluatingId, setEvaluatingId] = useState(null);
   const [analyses, setAnalyses] = useState({});
   const [aiErrors, setAiErrors] = useState({});
+  const [viewYear, setViewYear] = useState(() => new Date().getFullYear());
+  const [viewMonth, setViewMonth] = useState(() => new Date().getMonth());
+  const [selectedHistoryDate, setSelectedHistoryDate] = useState(null);
 
   const hasBlocker = blocker.trim().length > 0;
   const email = useMemo(() => localStorage.getItem('email') || '', []);
+  const today = todayISO();
+  const calendarCells = useMemo(
+    () => buildCalendarCells(viewYear, viewMonth),
+    [viewYear, viewMonth],
+  );
+  const loggedDateSet = useMemo(
+    () => new Set(entries.map((entry) => entry.date)),
+    [entries],
+  );
+  const monthLoggedCount = useMemo(() => {
+    const prefix = `${viewYear}-${pad2(viewMonth + 1)}`;
+    return loggedDateSet.size
+      ? [...loggedDateSet].filter((iso) => iso.startsWith(prefix)).length
+      : 0;
+  }, [loggedDateSet, viewYear, viewMonth]);
+  const visibleEntries = useMemo(() => {
+    if (!selectedHistoryDate) return entries;
+    return entries.filter((entry) => entry.date === selectedHistoryDate);
+  }, [entries, selectedHistoryDate]);
 
   const handleAuthFailure = useCallback(
     (status, serverError) => {
@@ -97,7 +150,7 @@ export default function StudentLogbook() {
     setListLoading(true);
     setListError('');
     try {
-      const res = await fetch(`${API_BASE}/api/logbook/entries`, {
+      const res = await fetch(`${API_BASE}/api/logbook`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json().catch(() => ({}));
@@ -187,6 +240,12 @@ export default function StudentLogbook() {
       setSuccess('บันทึกเล่มสหกิจเรียบร้อยแล้ว');
       setTasks('');
       setBlocker('');
+      setSelectedHistoryDate(date);
+      const [savedYear, savedMonth] = date.split('-').map(Number);
+      if (savedYear && savedMonth) {
+        setViewYear(savedYear);
+        setViewMonth(savedMonth - 1);
+      }
       setDate(todayISO());
       await loadEntries();
     } catch {
@@ -256,9 +315,20 @@ export default function StudentLogbook() {
     }
   };
 
+  const shiftMonth = (delta) => {
+    const next = new Date(viewYear, viewMonth + delta, 1);
+    setViewYear(next.getFullYear());
+    setViewMonth(next.getMonth());
+  };
+
+  const handlePickCalendarDay = (iso) => {
+    setDate(iso);
+    setSelectedHistoryDate(loggedDateSet.has(iso) ? iso : null);
+  };
+
   return (
     <div className="min-h-screen bg-[#f8fafc] px-4 py-10 dark:bg-[#09090b]">
-      <div className="mx-auto w-full max-w-3xl">
+      <div className="mx-auto w-full max-w-6xl">
         <div className="mb-6 flex items-center justify-between gap-4">
           <Link
             to="/student"
@@ -279,14 +349,23 @@ export default function StudentLogbook() {
             จดบันทึกเล่มสหกิจ
           </h1>
           <p className="mt-2 text-sm font-medium text-slate-500 dark:text-zinc-400">
-            Digital Logbook — บันทึกงานประจำวัน และให้ AI วิเคราะห์คำแนะนำ
+            Digital Logbook — บันทึกงานประจำวัน ดูวันที่จดแล้วบนปฏิทิน และให้ AI วิเคราะห์คำแนะนำ
           </p>
         </div>
 
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
         <form
           onSubmit={handleSubmit}
           className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm dark:border-white/10 dark:bg-[#161616]"
         >
+          <div className="mb-6">
+            <p className="m-0 text-[10px] font-black uppercase tracking-widest text-slate-400">
+              ส่วนที่ 1
+            </p>
+            <h2 className="m-0 mt-1 text-lg font-black tracking-tight text-slate-900 dark:text-white">
+              กรอกบันทึกประจำวัน
+            </h2>
+          </div>
           <div className="space-y-5">
             <div>
               <label htmlFor="logbook-date" className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -366,14 +445,117 @@ export default function StudentLogbook() {
           </div>
         </form>
 
+        <aside className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-[#161616]">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <p className="m-0 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                ส่วนที่ 2 · Calendar
+              </p>
+              <h2 className="m-0 mt-1 text-lg font-black tracking-tight text-slate-900 dark:text-white">
+                {THAI_MONTHS[viewMonth]} {viewYear + 543}
+              </h2>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => shiftMonth(-1)}
+                className="rounded-xl border border-slate-200 px-2.5 py-1.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/5"
+                aria-label="เดือนก่อนหน้า"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                onClick={() => shiftMonth(1)}
+                className="rounded-xl border border-slate-200 px-2.5 py-1.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/5"
+                aria-label="เดือนถัดไป"
+              >
+                ›
+              </button>
+            </div>
+          </div>
+
+          <p className="mb-4 text-sm font-medium text-slate-500 dark:text-zinc-400">
+            เดือนนี้จดแล้ว {monthLoggedCount} วัน · รวมทั้งหมด {loggedDateSet.size} วัน
+          </p>
+
+          <div className="grid grid-cols-7 gap-1 text-center">
+            {WEEKDAYS.map((day) => (
+              <span key={day} className="py-1 text-[10px] font-black uppercase tracking-wide text-slate-400">
+                {day}
+              </span>
+            ))}
+            {calendarCells.map((day, index) => {
+              if (!day) {
+                return <span key={`empty-${index}`} className="h-10" />;
+              }
+              const iso = toISODate(viewYear, viewMonth, day);
+              const logged = loggedDateSet.has(iso);
+              const isToday = iso === today;
+              const isSelected = iso === selectedHistoryDate;
+              return (
+                <button
+                  key={iso}
+                  type="button"
+                  onClick={() => handlePickCalendarDay(iso)}
+                  className={`relative h-10 rounded-xl text-sm font-bold transition ${
+                    isSelected
+                      ? 'bg-[#4f46e5] text-white shadow-md shadow-indigo-500/30'
+                      : logged
+                        ? 'bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+                        : isToday
+                          ? 'bg-slate-100 text-slate-900 dark:bg-white/10 dark:text-white'
+                          : 'text-slate-600 hover:bg-slate-50 dark:text-zinc-300 dark:hover:bg-white/5'
+                  }`}
+                  title={logged ? `จดแล้ว ${formatThaiDate(iso)}` : formatThaiDate(iso)}
+                >
+                  {day}
+                  {logged && !isSelected && (
+                    <span className="absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-emerald-500" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-3 text-[11px] font-bold text-slate-500 dark:text-zinc-400">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500/80" />
+              จดแล้ว
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-[#4f46e5]" />
+              วันที่เลือก
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-slate-300 dark:bg-white/20" />
+              วันนี้
+            </span>
+          </div>
+        </aside>
+        </div>
+
         <section className="mt-10">
-          <div className="mb-4 flex items-end justify-between gap-3">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <div>
               <h2 className="m-0 text-xl font-black tracking-tight text-slate-900 dark:text-white">
-                ประวัติบันทึก
+                ไทม์ไลน์การทำงาน
               </h2>
-              <p className="mt-1 text-sm font-medium text-slate-500">กดให้ AI วิเคราะห์คำแนะนำรายวัน</p>
+              <p className="mt-1 text-sm font-medium text-slate-500 dark:text-zinc-400">
+                {selectedHistoryDate
+                  ? `แสดงบันทึกวันที่ ${formatThaiDate(selectedHistoryDate)}`
+                  : 'เรียงตามวันที่จดล่าสุด — กดวันที่บนปฏิทินเพื่อกรอง'}
+              </p>
             </div>
+            {selectedHistoryDate && (
+              <button
+                type="button"
+                onClick={() => setSelectedHistoryDate(null)}
+                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-50 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/5"
+              >
+                ดูทั้งหมด
+              </button>
+            )}
           </div>
 
           {listLoading && (
@@ -396,8 +578,20 @@ export default function StudentLogbook() {
             </p>
           )}
 
-          <div className="space-y-4">
-            {entries.map((entry) => {
+          {!listLoading && !listError && entries.length > 0 && visibleEntries.length === 0 && (
+            <p className="rounded-3xl border border-dashed border-slate-200 px-5 py-8 text-center text-sm font-medium text-slate-400 dark:border-white/10">
+              วันที่นี้ยังไม่มีบันทึก — กรอกฟอร์มด้านบนแล้วบันทึกได้เลย
+            </p>
+          )}
+
+          <div className="relative space-y-4">
+            {visibleEntries.length > 0 && (
+              <span
+                className="absolute bottom-6 left-[1.15rem] top-6 hidden w-px bg-slate-200 sm:block dark:bg-white/10"
+                aria-hidden="true"
+              />
+            )}
+            {visibleEntries.map((entry) => {
               const analysis = analyses[entry.id];
               const aiError = aiErrors[entry.id];
               const isEvaluating = evaluatingId === entry.id;
@@ -405,11 +599,14 @@ export default function StudentLogbook() {
               return (
                 <article
                   key={entry.id}
-                  className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-[#161616]"
+                  className="relative rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-[#161616] sm:pl-12"
                 >
+                  <span className="absolute left-4 top-7 hidden h-3.5 w-3.5 rounded-full border-2 border-[#4f46e5] bg-white sm:block dark:bg-[#161616]" />
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <p className="m-0 text-xs font-bold uppercase tracking-wide text-slate-400">{entry.date}</p>
+                      <p className="m-0 text-xs font-bold uppercase tracking-wide text-indigo-500 dark:text-indigo-300">
+                        {formatThaiDate(entry.date)}
+                      </p>
                       <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-800 dark:text-zinc-200">
                         {entry.tasks}
                       </p>

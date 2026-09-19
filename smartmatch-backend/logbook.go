@@ -107,6 +107,8 @@ func CreateLogbookHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ListMyLogbookHandler handles GET /api/logbook (and GET /api/logbook/entries).
+// It returns every logbook entry belonging to the JWT-authenticated student.
 func ListMyLogbookHandler(w http.ResponseWriter, r *http.Request) {
 	if db == nil {
 		writeError(w, http.StatusServiceUnavailable, "database is not available")

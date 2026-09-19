@@ -1,8 +1,19 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import Login from './Login';
 import Register from './Register';
 import Dashboard from './App.tsx';
 import StudentLogbook from './StudentLogbook';
+
+function applySavedTheme() {
+  const savedTheme = localStorage.getItem('theme');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+    document.documentElement.classList.add('dark');
+  } else {
+    document.documentElement.classList.remove('dark');
+  }
+}
 
 function ProtectedRoute({ children }) {
   const token = localStorage.getItem('token');
@@ -28,6 +39,10 @@ function HomeRedirect() {
 }
 
 export default function App() {
+  useEffect(() => {
+    applySavedTheme();
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>

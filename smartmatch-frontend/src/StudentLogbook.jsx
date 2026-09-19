@@ -377,7 +377,7 @@ export default function StudentLogbook() {
                 required
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-sm text-slate-900 outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/15 dark:border-white/10 dark:bg-[#0a0a0a] dark:text-zinc-100"
+                className="w-full rounded-2xl border border-white/10 bg-[#1a1a1a] px-4 py-3.5 text-sm text-white scheme-dark outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
@@ -392,7 +392,7 @@ export default function StudentLogbook() {
                 value={tasks}
                 onChange={(e) => setTasks(e.target.value)}
                 placeholder="สรุปงานที่ทำในวันนี้ เช่น เขียน API, ทดสอบระบบ, ประชุมกับพี่เลี้ยง..."
-                className="w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-sm leading-relaxed text-slate-900 outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/15 dark:border-white/10 dark:bg-[#0a0a0a] dark:text-zinc-100"
+                className="w-full resize-y rounded-2xl border border-white/10 bg-[#1a1a1a] px-4 py-3.5 text-sm leading-relaxed text-white placeholder-gray-400 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
@@ -411,10 +411,10 @@ export default function StudentLogbook() {
                 value={blocker}
                 onChange={(e) => setBlocker(e.target.value)}
                 placeholder="เว้นว่างได้ถ้าวันนี้ไม่มีปัญหา — กรอกเมื่อติดปัญหาหรือมีอุปสรรคที่ต้องการแจ้งอาจารย์"
-                className={`w-full resize-y rounded-2xl border bg-slate-50 px-4 py-3.5 text-sm leading-relaxed text-slate-900 outline-none transition focus:bg-white focus:ring-4 dark:bg-[#0a0a0a] dark:text-zinc-100 ${
+                className={`w-full resize-y rounded-2xl border bg-[#1a1a1a] px-4 py-3.5 text-sm leading-relaxed text-white placeholder-gray-400 outline-none transition focus:ring-2 ${
                   hasBlocker
-                    ? 'border-amber-300 focus:border-amber-500 focus:ring-amber-500/15 dark:border-amber-500/40'
-                    : 'border-slate-200 focus:border-indigo-500 focus:ring-indigo-500/15 dark:border-white/10'
+                    ? 'border-amber-500/40 focus:border-amber-500 focus:ring-amber-500'
+                    : 'border-white/10 focus:border-blue-500 focus:ring-blue-500'
                 }`}
               />
               <p className="mt-2 text-xs font-medium text-slate-400">

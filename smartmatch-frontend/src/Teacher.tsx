@@ -205,7 +205,7 @@ export default function Teacher({ showToast }: { activeMenu?: string; setActiveM
                           ))}
                         </div>
                         <form onSubmit={(e) => { handleSendChat(e); notify('ส่งข้อความสำเร็จ', 'success'); }} className="flex gap-3 p-3 bg-white border-t dark:bg-[#121212] border-zinc-200 dark:border-white/5">
-                          <input type="text" value={typedMessage} onChange={e => setTypedMessage(e.target.value)} className="flex-1 px-4 py-2.5 text-sm transition-all border outline-none bg-zinc-50 dark:bg-[#0a0a0a] border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-zinc-100 rounded-xl" />
+                          <input type="text" value={typedMessage} onChange={e => setTypedMessage(e.target.value)} placeholder="พิมพ์ข้อความ..." className="flex-1 px-4 py-2.5 text-sm transition-all border outline-none bg-[#1a1a1a] border-white/10 text-white placeholder-gray-400 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-500" />
                           <button type="submit" className="px-6 py-2.5 bg-zinc-900 dark:bg-white text-white dark:text-black text-sm font-semibold rounded-xl">ส่ง</button>
                         </form>
                       </motion.div>

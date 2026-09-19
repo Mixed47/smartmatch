@@ -78,7 +78,7 @@ function Dashboard({ initialRole }: { initialRole: 'student' | 'company' | 'teac
               <button onClick={() => setActiveMenu('student-home')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-sm mb-2 transition flex items-center gap-3 ${activeMenu === 'student-home' ? 'bg-[#4f46e5] text-white shadow-md' : 'text-slate-500 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-white/5'}`}>Dashboard</button>
               <button onClick={() => setActiveMenu('1')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-sm mb-2 transition flex items-center gap-3 ${activeMenu === '1' ? 'bg-[#4f46e5] text-white shadow-md' : 'text-slate-500 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-white/5'}`}>Skill Extraction</button>
               <button onClick={() => setActiveMenu('2')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-sm mb-2 transition flex items-center gap-3 ${activeMenu === '2' ? 'bg-[#4f46e5] text-white shadow-md' : 'text-slate-500 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-white/5'}`}>Job Discovery</button>
-              <button onClick={() => setActiveMenu('3')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-sm transition flex items-center gap-3 ${activeMenu === '3' ? 'bg-[#4f46e5] text-white shadow-md' : 'text-slate-500 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-white/5'}`}>Digital Logbook</button>
+              <button onClick={() => navigate('/student/logbook')} className="w-full text-left px-4 py-3 rounded-xl font-bold text-sm transition flex items-center gap-3 text-slate-500 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-white/5">Digital Logbook</button>
             </>
           )}
           {role === 'hr' && (

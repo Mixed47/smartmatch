@@ -207,6 +207,7 @@ func main() {
 	r.Handle("/api/resolve-cancel", authed(resolveCancelHandler, roleTeacher)).Methods("POST")
 	r.Handle("/api/petitions", authed(createPetitionHandler, roleStudent)).Methods("POST")
 	r.Handle("/api/petitions", authed(listPetitionsHandler, roleStudent, roleTeacher)).Methods("GET")
+	r.Handle("/api/petitions/{id}/resolve", authed(resolvePetitionHandler, roleTeacher)).Methods("PUT")
 	r.Handle("/api/evaluate", authed(evaluateStudentHandler, roleCompany)).Methods("POST")
 	r.Handle("/api/evaluations", authed(getEvaluationsHandler, roleTeacher, roleCompany)).Methods("GET")
 	r.Handle("/api/files/{filename}", jwtQueryTokenMiddleware(authed(serveProtectedUpload))).Methods("GET")

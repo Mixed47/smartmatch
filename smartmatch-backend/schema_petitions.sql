@@ -6,5 +6,6 @@ CREATE TABLE IF NOT EXISTS petitions (
     status VARCHAR(50) NOT NULL DEFAULT 'Pending',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_petitions_user_id (user_id),
-    INDEX idx_petitions_type (type)
+    INDEX idx_petitions_type (type),
+    INDEX idx_petitions_status (status)
 );

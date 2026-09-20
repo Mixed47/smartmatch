@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { Skill, JobMatch, Application } from './types';
 import { apiFetch, apiJson, friendlyApiError } from './apiClient';
+import StudentPetitions from './StudentPetitions';
 
 interface Message { id: number; application_id: string; sender: string; text: string; created_at: string; }
 interface LogEntry { date: string; category: string; activity: string; blocker: string; }
@@ -328,6 +329,12 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
 
       <AnimatePresence mode="wait">
         
+        {activeMenu === 'petitions' && (
+          <motion.div key="petitions" variants={containerVariants} initial="hidden" animate="show" exit="hidden">
+            <StudentPetitions showToast={showToast} />
+          </motion.div>
+        )}
+
         {activeMenu === 'student-home' && (
           <motion.div key="student-home" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="w-full max-w-5xl mx-auto">
             <motion.div variants={itemVariants} className="mb-10">

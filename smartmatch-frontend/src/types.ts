@@ -4,3 +4,14 @@ export interface JobMatch { job_title: string; company: string; required_skills?
 export interface Application { id: string; name: string; job_title: string; company: string; match_percentage: number; skills: string[]; resume_url: string; status: string; }
 export interface CancelRequest { id: number; application_id: string; student_name: string; company_name: string; reason: string; status: string; }
 export interface Evaluation { application_id: string; score: number; comment: string; }
+export interface Petition {
+  id: number;
+  user_id: number;
+  student_name?: string;
+  student_email?: string;
+  type: string;
+  payload?: { reason?: string } | Record<string, unknown>;
+  reason?: string;
+  status: string;
+  created_at: string;
+}

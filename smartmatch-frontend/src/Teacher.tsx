@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { CancelRequest, Evaluation } from './types';
+import { CancelRequest, Evaluation, Petition } from './types';
 import { apiJson, friendlyApiError } from './apiClient';
+import TeacherPetitions, { petitionError, resolveTeacherPetition } from './TeacherPetitions';
 
 interface Application { id: string; name: string; job_title: string; company: string; status: string; }
 interface Message { id: number; application_id: string; sender: string; text: string; created_at: string; }
@@ -27,9 +28,11 @@ const containerVariants: Variants = { hidden: { opacity: 0 }, show: { opacity: 1
 const itemVariants: Variants = { hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 100, damping: 15 } } };
 const formatThaiDate = (dateString: string) => { if (!dateString) return ''; return new Date(dateString).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' }); };
 
-export default function Teacher({ showToast }: { activeMenu?: string; setActiveMenu?: (m: string) => void; showToast?: (msg: string, type: 'success' | 'error' | 'info') => void; }) {
+export default function Teacher({ activeMenu, showToast }: { activeMenu?: string; setActiveMenu?: (m: string) => void; showToast?: (msg: string, type: 'success' | 'error' | 'info') => void; }) {
   const [applications, setApplications] = useState<Application[]>([]);
-  const [cancelRequests, setCancelRequests] = useState<CancelRequest[]>([]); 
+  const [cancelRequests, setCancelRequests] = useState<CancelRequest[]>([]);
+  const [petitions, setPetitions] = useState<Petition[]>([]);
+  const [resolvingPetitionId, setResolvingPetitionId] = useState<number | null>(null); 
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
@@ -71,6 +74,7 @@ export default function Teacher({ showToast }: { activeMenu?: string; setActiveM
       apiJson('/api/my-applications').then((data) => setApplications(data || [])),
       apiJson('/api/logbook').then((data) => setLogs(Array.isArray(data) ? data : (data?.data || []))),
       apiJson('/api/cancel-requests').then((data) => setCancelRequests(data || [])),
+      apiJson('/api/petitions').then((data) => setPetitions(Array.isArray(data) ? data : [])),
       apiJson('/api/evaluations').then((data) => setEvaluations(data || [])),
       loadCriticalAlerts(false),
     ]).then(() => setLoadError('')).catch((err) => setLoadError(friendlyApiError(err, 'โหลดข้อมูลอาจารย์ไม่สำเร็จ')));
@@ -116,6 +120,19 @@ export default function Teacher({ showToast }: { activeMenu?: string; setActiveM
     }
   };
 
+  const handleResolvePetition = async (id: number, status: 'Approved' | 'Rejected') => {
+    setResolvingPetitionId(id);
+    try {
+      await resolveTeacherPetition(id, status);
+      notify(status === 'Approved' ? 'อนุมัติคำร้องแล้ว' : 'ปฏิเสธคำร้องแล้ว', 'success');
+      loadData();
+    } catch (err) {
+      notify(petitionError(err), 'error');
+    } finally {
+      setResolvingPetitionId(null);
+    }
+  };
+
   const handleResolveRequest = async (id: number, appId: string, action: 'approve' | 'reject') => {
     try {
       await apiJson('/api/resolve-cancel', {
@@ -142,7 +159,8 @@ export default function Teacher({ showToast }: { activeMenu?: string; setActiveM
 
   const total = new Set(applications.map(a => a.name)).size;
   const matched = applications.filter(a => a.status === 'Matched' || a.status === 'Completed').length;
-  const pending = cancelRequests.length; 
+  const pending = petitions.length + cancelRequests.length;
+  const petitionsFocus = activeMenu === 'teacher-petitions'; 
 
   return (
     <div className="relative w-full pb-20 transition-colors duration-500 text-zinc-900 dark:text-zinc-100">
@@ -156,10 +174,11 @@ export default function Teacher({ showToast }: { activeMenu?: string; setActiveM
           
           <motion.div variants={itemVariants} className="flex flex-col gap-4 mb-10 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-5">
-              <div><h2 className="m-0 text-3xl font-extrabold tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-zinc-900 to-zinc-600 dark:from-white dark:to-zinc-400">Monitoring Dashboard</h2><p className="m-0 mt-1 text-sm font-medium tracking-wide text-zinc-500 dark:text-zinc-400">ระบบติดตามและอนุมัติการฝึกงาน</p></div>
+              <div><h2 className="m-0 text-3xl font-extrabold tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-zinc-900 to-zinc-600 dark:from-white dark:to-zinc-400">{petitionsFocus ? 'Petition Management' : 'Monitoring Dashboard'}</h2><p className="m-0 mt-1 text-sm font-medium tracking-wide text-zinc-500 dark:text-zinc-400">{petitionsFocus ? 'อนุมัติหรือปฏิเสธคำร้องของนักศึกษา' : 'ระบบติดตามและอนุมัติการฝึกงาน'}</p></div>
             </div>
           </motion.div>
 
+          {!petitionsFocus && (
           <motion.div variants={itemVariants} className="overflow-hidden mb-10 bg-gradient-to-br from-orange-50 via-rose-50 to-amber-50 dark:from-orange-950/40 dark:via-rose-950/30 dark:to-amber-950/20 backdrop-blur-xl border shadow-[0_8px_30px_rgb(251,146,60,0.12)] dark:shadow-none rounded-[2rem] border-orange-300/80 dark:border-orange-700/50">
             <div className="flex items-center justify-between px-8 py-6 border-b border-orange-200/80 dark:border-orange-800/50 bg-orange-100/60 dark:bg-orange-950/40">
               <h3 className="flex items-center gap-2 m-0 text-sm font-bold tracking-wide uppercase text-orange-900 dark:text-orange-300">⚠️ แจ้งเตือนปัญหาด่วนจากนักศึกษา (Critical Alerts)</h3>
@@ -226,14 +245,23 @@ export default function Teacher({ showToast }: { activeMenu?: string; setActiveM
               )}
             </div>
           </motion.div>
+          )}
 
           <motion.div variants={containerVariants} className="grid grid-cols-1 gap-6 mb-10 md:grid-cols-3">
             <motion.div variants={itemVariants} whileHover={{ y: -4 }} className="p-8 text-center bg-white/70 dark:bg-[#161616] backdrop-blur-xl border border-zinc-200/50 dark:border-white/5 shadow-sm rounded-[2rem] relative overflow-hidden group"><div className="absolute inset-0 transition-opacity duration-500 opacity-0 bg-indigo-500/5 dark:bg-indigo-500/10 group-hover:opacity-100"></div><p className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 tracking-widest uppercase mb-2 relative z-10">Total Students</p><h3 className="relative z-10 m-0 text-6xl font-black tracking-tighter text-indigo-600 dark:text-indigo-400">{total}</h3></motion.div>
             <motion.div variants={itemVariants} whileHover={{ y: -4 }} className="p-8 text-center bg-white/70 dark:bg-[#161616] backdrop-blur-xl border border-zinc-200/50 dark:border-white/5 shadow-sm rounded-[2rem] relative overflow-hidden group"><div className="absolute inset-0 transition-opacity duration-500 opacity-0 bg-emerald-500/5 dark:bg-emerald-500/10 group-hover:opacity-100"></div><p className="text-[10px] font-black text-emerald-600 dark:text-emerald-500 tracking-widest uppercase mb-2 relative z-10">Successfully Matched</p><h3 className="relative z-10 m-0 text-6xl font-black tracking-tighter text-emerald-500 dark:text-emerald-400">{matched}</h3></motion.div>
-            <motion.div variants={itemVariants} whileHover={{ y: -4 }} className="p-8 text-center bg-white/70 dark:bg-[#161616] backdrop-blur-xl border border-zinc-200/50 dark:border-white/5 shadow-sm rounded-[2rem] relative overflow-hidden group"><div className="absolute inset-0 transition-opacity duration-500 opacity-0 bg-rose-500/5 dark:bg-rose-500/10 group-hover:opacity-100"></div><p className={`text-[10px] font-black tracking-widest uppercase mb-2 relative z-10 ${pending > 0 ? 'text-rose-600 dark:text-rose-500' : 'text-amber-600 dark:text-amber-500'}`}>คำร้องสละสิทธิ์ (รออนุมัติ)</p><h3 className={`relative z-10 m-0 text-6xl font-black tracking-tighter ${pending > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-amber-500 dark:text-amber-400'}`}>{pending}</h3></motion.div>
+            <motion.div variants={itemVariants} whileHover={{ y: -4 }} className="p-8 text-center bg-white/70 dark:bg-[#161616] backdrop-blur-xl border border-zinc-200/50 dark:border-white/5 shadow-sm rounded-[2rem] relative overflow-hidden group"><div className="absolute inset-0 transition-opacity duration-500 opacity-0 bg-rose-500/5 dark:bg-rose-500/10 group-hover:opacity-100"></div><p className={`text-[10px] font-black tracking-widest uppercase mb-2 relative z-10 ${pending > 0 ? 'text-rose-600 dark:text-rose-500' : 'text-amber-600 dark:text-amber-500'}`}>คำร้องรออนุมัติ</p><h3 className={`relative z-10 m-0 text-6xl font-black tracking-tighter ${pending > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-amber-500 dark:text-amber-400'}`}>{pending}</h3></motion.div>
           </motion.div>
 
-          {cancelRequests.length > 0 && (
+          <motion.div variants={itemVariants}>
+            <TeacherPetitions
+              petitions={petitions}
+              resolvingId={resolvingPetitionId}
+              onResolve={handleResolvePetition}
+            />
+          </motion.div>
+
+          {!petitionsFocus && cancelRequests.length > 0 && (
             <motion.div variants={itemVariants} className="overflow-hidden mb-10 bg-white/70 dark:bg-[#121212] backdrop-blur-xl border shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:shadow-none rounded-[2rem] border-rose-200/80 dark:border-rose-900/50">
               <div className="flex items-center justify-between px-8 py-6 border-b border-rose-100 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/20">
                 <h3 className="flex items-center gap-2 m-0 text-sm font-bold tracking-wide uppercase text-rose-800 dark:text-rose-400">คำร้องขอสละสิทธิ์สถานที่ฝึกงาน ({cancelRequests.length})</h3>
@@ -257,6 +285,7 @@ export default function Teacher({ showToast }: { activeMenu?: string; setActiveM
             </motion.div>
           )}
 
+          {!petitionsFocus && (
           <motion.div variants={itemVariants} className="overflow-hidden bg-white/70 dark:bg-[#121212] backdrop-blur-xl border shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:shadow-none rounded-[2rem] border-zinc-200/50 dark:border-white/5">
             <div className="flex items-center justify-between px-8 py-6 border-b border-zinc-100 dark:border-white/5 bg-zinc-50/50 dark:bg-white/5">
               <h3 className="flex items-center gap-2 m-0 text-sm font-bold tracking-wide uppercase text-zinc-800 dark:text-zinc-200">สถานะและสมุดบันทึกของนักศึกษา</h3>
@@ -356,6 +385,7 @@ export default function Teacher({ showToast }: { activeMenu?: string; setActiveM
               })}
             </div>
           </motion.div>
+          )}
         </motion.div>
       </AnimatePresence>
     </div>

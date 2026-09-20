@@ -50,8 +50,9 @@ type errorResponse struct {
 }
 
 type claims struct {
-	UserID int64  `json:"user_id"`
-	Role   string `json:"role"`
+	UserID  int64  `json:"user_id"`
+	Role    string `json:"role"`
+	Purpose string `json:"purpose,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -88,8 +89,9 @@ func generateJWT(userID int64, role string) (string, error) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims{
-		UserID: userID,
-		Role:   role,
+		UserID:  userID,
+		Role:    role,
+		Purpose: "access",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -100,8 +102,7 @@ func generateJWT(userID int64, role string) (string, error) {
 }
 
 func RegisterHandler(w http.ResponseWriter, r *http.Request) {
-	if db == nil {
-		writeError(w, http.StatusServiceUnavailable, "database is not available")
+	if !requireDB(w) {
 		return
 	}
 
@@ -144,9 +145,15 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	secret, otpauthURL, qrDataURL, err := generateTOTPSetup(req.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate MFA secret")
+		return
+	}
+
 	result, err := db.Exec(
-		"INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
-		req.Email, string(hash), req.Role,
+		"INSERT INTO users (email, password_hash, role, mfa_secret, mfa_enabled) VALUES (?, ?, ?, ?, 1)",
+		req.Email, string(hash), req.Role, secret,
 	)
 	if err != nil {
 		var mysqlErr *mysql.MySQLError
@@ -165,16 +172,18 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"message": "registered successfully",
-		"user_id": userID,
-		"email":   req.Email,
-		"role":    req.Role,
+		"message":         "registered successfully",
+		"user_id":         userID,
+		"email":           req.Email,
+		"role":            req.Role,
+		"mfa_enabled":     true,
+		"otpauth_url":     otpauthURL,
+		"qr_image_base64": qrDataURL,
 	})
 }
 
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
-	if db == nil {
-		writeError(w, http.StatusServiceUnavailable, "database is not available")
+	if !requireDB(w) {
 		return
 	}
 
@@ -193,10 +202,12 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	var userID int64
 	var passwordHash string
 	var role string
+	var mfaSecret string
+	var mfaEnabled bool
 	err := db.QueryRow(
-		"SELECT id, password_hash, role FROM users WHERE email = ?",
+		"SELECT id, password_hash, role, IFNULL(mfa_secret, ''), IFNULL(mfa_enabled, 0) FROM users WHERE email = ?",
 		req.Email,
-	).Scan(&userID, &passwordHash, &role)
+	).Scan(&userID, &passwordHash, &role, &mfaSecret, &mfaEnabled)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusUnauthorized, "invalid email or password")
 		return
@@ -211,18 +222,23 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := generateJWT(userID, role)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate token")
-		return
+	otpauthURL := ""
+	qrDataURL := ""
+	if strings.TrimSpace(mfaSecret) == "" {
+		secret, url, qr, genErr := generateTOTPSetup(req.Email)
+		if genErr != nil {
+			writeError(w, http.StatusInternalServerError, "failed to generate MFA secret")
+			return
+		}
+		if _, err := db.Exec("UPDATE users SET mfa_secret = ?, mfa_enabled = 1 WHERE id = ?", secret, userID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to save MFA secret")
+			return
+		}
+		otpauthURL = url
+		qrDataURL = qr
 	}
 
-	writeJSON(w, http.StatusOK, AuthResponse{
-		Token:  token,
-		UserID: userID,
-		Email:  req.Email,
-		Role:   role,
-	})
+	writeMFAChallenge(w, userID, req.Email, role, otpauthURL, qrDataURL)
 }
 
 type ctxKey string
@@ -322,6 +338,10 @@ func jwtAuthMiddleware(next http.Handler) http.Handler {
 		tokenClaims, ok := parsed.Claims.(*claims)
 		if !ok || tokenClaims.UserID <= 0 {
 			writeError(w, http.StatusUnauthorized, "invalid token claims")
+			return
+		}
+		if tokenClaims.Purpose == tokenPurposeMFA {
+			writeError(w, http.StatusUnauthorized, "MFA verification required")
 			return
 		}
 

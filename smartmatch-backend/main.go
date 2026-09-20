@@ -158,6 +158,7 @@ func initDB() {
 	ensureLogbookAIColumns()
 	ensureOwnershipColumns()
 	ensurePetitionsTable()
+	ensureMFAColumns()
 }
 
 func main() {
@@ -173,6 +174,7 @@ func main() {
 
 	r.HandleFunc("/api/register", RegisterHandler).Methods("POST")
 	r.HandleFunc("/api/login", LoginHandler).Methods("POST")
+	r.HandleFunc("/api/verify-mfa", VerifyMFAHandler).Methods("POST")
 
 	r.Handle("/api/extract-skills-graded", authed(extractSkillsGradedHandler, roleStudent)).Methods("POST")
 	r.Handle("/api/match-jobs", authed(matchJobsHandler, roleStudent)).Methods("POST")

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { CancelRequest, Evaluation } from './types';
 import { apiJson, friendlyApiError } from './apiClient';
@@ -6,6 +6,17 @@ import { apiJson, friendlyApiError } from './apiClient';
 interface Application { id: string; name: string; job_title: string; company: string; status: string; }
 interface Message { id: number; application_id: string; sender: string; text: string; created_at: string; }
 interface Logbook { id: number; name: string; category: string; activity: string; blocker: string; created_at: string; date?: string; }
+interface CriticalLogbook {
+  id: number;
+  student_id?: number;
+  first_name?: string;
+  last_name?: string;
+  student_name?: string;
+  date?: string;
+  blocker?: string;
+  ai_feedback?: string;
+  feedback?: string;
+}
 
 // Premium Icons
 const IconChat = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.436 3 11.996c0 2.29.932 4.35 2.44 5.86l-1.92 2.91a.75.75 0 00.91 1.09l3.22-1.39a9.123 9.123 0 004.35 1.034z" /></svg>;
@@ -24,10 +35,36 @@ export default function Teacher({ showToast }: { activeMenu?: string; setActiveM
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const [typedMessage, setTypedMessage] = useState('');
   const [logs, setLogs] = useState<Logbook[]>([]);
+  const [criticalLogs, setCriticalLogs] = useState<CriticalLogbook[]>([]);
+  const [criticalLoading, setCriticalLoading] = useState(true);
+  const [criticalError, setCriticalError] = useState('');
+  const [acknowledgingId, setAcknowledgingId] = useState<number | null>(null);
   const [activeLogCardId, setActiveLogCardId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState('');
+  const pendingAckRef = useRef<Set<number>>(new Set());
 
   const notify = (msg: string, type: 'success' | 'error' | 'info' = 'success') => { if (showToast) showToast(msg, type); };
+
+  const studentAlertName = (alert: CriticalLogbook) => {
+    const fromParts = `${alert.first_name || ''} ${alert.last_name || ''}`.trim();
+    return fromParts || alert.student_name || 'นักศึกษา';
+  };
+
+  const loadCriticalAlerts = (isInitial = false) => {
+    if (isInitial) setCriticalLoading(true);
+    return apiJson('/api/teacher/critical-logbooks')
+      .then((data) => {
+        const list: CriticalLogbook[] = Array.isArray(data) ? data : (data?.data || []);
+        setCriticalLogs(list.filter((item) => !pendingAckRef.current.has(item.id)));
+        setCriticalError('');
+      })
+      .catch((err) => {
+        setCriticalError(friendlyApiError(err, 'โหลดแจ้งเตือนปัญหาด่วนไม่สำเร็จ'));
+      })
+      .finally(() => {
+        if (isInitial) setCriticalLoading(false);
+      });
+  };
 
   const loadData = () => {
     Promise.all([
@@ -35,10 +72,29 @@ export default function Teacher({ showToast }: { activeMenu?: string; setActiveM
       apiJson('/api/logbook').then((data) => setLogs(Array.isArray(data) ? data : (data?.data || []))),
       apiJson('/api/cancel-requests').then((data) => setCancelRequests(data || [])),
       apiJson('/api/evaluations').then((data) => setEvaluations(data || [])),
+      loadCriticalAlerts(false),
     ]).then(() => setLoadError('')).catch((err) => setLoadError(friendlyApiError(err, 'โหลดข้อมูลอาจารย์ไม่สำเร็จ')));
   };
 
+  const handleAcknowledge = async (id: number) => {
+    const previous = criticalLogs;
+    pendingAckRef.current.add(id);
+    setAcknowledgingId(id);
+    setCriticalLogs((current) => current.filter((item) => item.id !== id));
+    try {
+      await apiJson(`/api/teacher/critical-logbooks/${id}/acknowledge`, { method: 'PUT' });
+      notify('รับทราบปัญหาแล้ว', 'success');
+    } catch (err) {
+      pendingAckRef.current.delete(id);
+      setCriticalLogs(previous);
+      notify(friendlyApiError(err, 'อัปเดตสถานะไม่สำเร็จ'), 'error');
+    } finally {
+      setAcknowledgingId(null);
+    }
+  };
+
   useEffect(() => { 
+    loadCriticalAlerts(true);
     loadData(); 
     const interval = setInterval(loadData, 3000); 
     return () => clearInterval(interval);
@@ -101,6 +157,73 @@ export default function Teacher({ showToast }: { activeMenu?: string; setActiveM
           <motion.div variants={itemVariants} className="flex flex-col gap-4 mb-10 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-5">
               <div><h2 className="m-0 text-3xl font-extrabold tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-zinc-900 to-zinc-600 dark:from-white dark:to-zinc-400">Monitoring Dashboard</h2><p className="m-0 mt-1 text-sm font-medium tracking-wide text-zinc-500 dark:text-zinc-400">ระบบติดตามและอนุมัติการฝึกงาน</p></div>
+            </div>
+          </motion.div>
+
+          <motion.div variants={itemVariants} className="overflow-hidden mb-10 bg-gradient-to-br from-orange-50 via-rose-50 to-amber-50 dark:from-orange-950/40 dark:via-rose-950/30 dark:to-amber-950/20 backdrop-blur-xl border shadow-[0_8px_30px_rgb(251,146,60,0.12)] dark:shadow-none rounded-[2rem] border-orange-300/80 dark:border-orange-700/50">
+            <div className="flex items-center justify-between px-8 py-6 border-b border-orange-200/80 dark:border-orange-800/50 bg-orange-100/60 dark:bg-orange-950/40">
+              <h3 className="flex items-center gap-2 m-0 text-sm font-bold tracking-wide uppercase text-orange-900 dark:text-orange-300">⚠️ แจ้งเตือนปัญหาด่วนจากนักศึกษา (Critical Alerts)</h3>
+              {!criticalLoading && !criticalError && (
+                <span className="px-3 py-1 text-[10px] font-black tracking-widest uppercase rounded-full bg-rose-600 text-white">{criticalLogs.length}</span>
+              )}
+            </div>
+            <div className="p-6 space-y-4">
+              {criticalLoading && (
+                <div className="space-y-3">
+                  <div className="h-28 animate-pulse rounded-2xl bg-orange-200/60 dark:bg-orange-900/30" />
+                  <div className="h-28 animate-pulse rounded-2xl bg-orange-200/40 dark:bg-orange-900/20" />
+                  <p className="m-0 text-sm font-medium text-center text-orange-700 dark:text-orange-300">กำลังโหลดแจ้งเตือนปัญหาด่วน...</p>
+                </div>
+              )}
+              {!criticalLoading && criticalError && (
+                <div className="p-5 border rounded-2xl bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800">
+                  <p className="m-0 text-sm font-medium text-rose-700 dark:text-rose-300">{criticalError}</p>
+                  <button type="button" onClick={() => loadCriticalAlerts(true)} className="mt-3 px-4 py-2 text-xs font-semibold text-white bg-rose-600 rounded-xl hover:bg-rose-700">ลองใหม่</button>
+                </div>
+              )}
+              {!criticalLoading && !criticalError && criticalLogs.length === 0 && (
+                <p className="py-6 m-0 font-medium text-center text-orange-700/80 dark:text-orange-300/80">ไม่มีปัญหาด่วนที่รอรับทราบในขณะนี้</p>
+              )}
+              {!criticalLoading && !criticalError && (
+                <AnimatePresence>
+                  {criticalLogs.map((alert) => (
+                    <motion.div
+                      key={alert.id}
+                      layout
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.96, height: 0, marginBottom: 0 }}
+                      className="p-5 border bg-white dark:bg-[#1a1010] border-rose-200/80 dark:border-rose-800/50 rounded-2xl shadow-sm"
+                    >
+                      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-3 mb-2">
+                            <h4 className="m-0 text-lg font-bold text-zinc-900 dark:text-zinc-100">{studentAlertName(alert)}</h4>
+                            <span className="px-3 py-1 rounded-md text-[9px] font-black tracking-widest uppercase border bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20">Critical</span>
+                          </div>
+                          <p className="m-0 text-xs font-medium text-zinc-500 dark:text-zinc-400">วันที่บันทึก: <span className="font-bold text-zinc-800 dark:text-zinc-200">{formatThaiDate(alert.date || '')}</span></p>
+                          <div className="p-4 mt-3 border border-rose-200/80 dark:border-rose-900/50 bg-rose-50/70 dark:bg-rose-950/30 rounded-xl">
+                            <p className="mb-1 text-[10px] font-black tracking-widest uppercase text-rose-600 dark:text-rose-400">อุปสรรค (Blocker)</p>
+                            <p className="m-0 text-sm leading-relaxed text-rose-800 dark:text-rose-200">{alert.blocker?.trim() || 'ไม่ระบุอุปสรรค'}</p>
+                          </div>
+                          <div className="p-4 mt-3 border border-orange-200/80 dark:border-orange-900/40 bg-orange-50/70 dark:bg-orange-950/20 rounded-xl">
+                            <p className="mb-1 text-[10px] font-black tracking-widest uppercase text-orange-700 dark:text-orange-400">คำแนะนำจาก AI (Feedback)</p>
+                            <p className="m-0 text-sm leading-relaxed text-orange-900 dark:text-orange-200">{alert.ai_feedback || alert.feedback || 'ยังไม่มีคำแนะนำจาก AI'}</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={acknowledgingId === alert.id}
+                          onClick={() => handleAcknowledge(alert.id)}
+                          className="shrink-0 px-5 py-2.5 text-xs font-semibold text-white bg-orange-600 rounded-xl shadow-md hover:bg-orange-700 disabled:opacity-60"
+                        >
+                          {acknowledgingId === alert.id ? 'กำลังบันทึก...' : 'รับทราบ / ให้คำปรึกษาแล้ว'}
+                        </button>
+                      </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              )}
             </div>
           </motion.div>
 

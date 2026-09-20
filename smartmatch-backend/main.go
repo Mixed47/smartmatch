@@ -152,6 +152,7 @@ func initDB() {
 		ai_score VARCHAR(32),
 		ai_is_critical TINYINT(1),
 		ai_evaluated_at TIMESTAMP NULL,
+		is_acknowledged TINYINT(1) NOT NULL DEFAULT 0,
 		INDEX idx_logbook_student_id (student_id),
 		CONSTRAINT fk_logbook_student FOREIGN KEY (student_id) REFERENCES users(id)
 	)`)
@@ -188,6 +189,8 @@ func main() {
 	r.Handle("/api/logbook", authed(ListMyLogbookHandler, roleStudent, roleTeacher)).Methods("GET")
 	r.Handle("/api/logbook/entries", authed(ListMyLogbookHandler, roleStudent, roleTeacher)).Methods("GET")
 	r.Handle("/api/logbook/{id}/evaluate", authed(EvaluateLogbookHandler, roleStudent)).Methods("POST")
+	r.Handle("/api/teacher/critical-logbooks", authed(ListCriticalLogbooksHandler, roleTeacher)).Methods("GET")
+	r.Handle("/api/teacher/critical-logbooks/{id}/acknowledge", authed(AcknowledgeCriticalLogbookHandler, roleTeacher)).Methods("PUT")
 	r.Handle("/api/applications", authed(getApplicationsHandler, roleCompany)).Methods("GET")
 	r.Handle("/api/update-status", authed(updateStatusHandler, roleCompany)).Methods("POST")
 	r.Handle("/api/jobs", authed(postJobHandler, roleCompany)).Methods("POST", "GET")

@@ -415,12 +415,140 @@ func ensureLogbookAIColumns() {
 		"ALTER TABLE logbook_entries ADD COLUMN ai_score VARCHAR(32)",
 		"ALTER TABLE logbook_entries ADD COLUMN ai_is_critical TINYINT(1)",
 		"ALTER TABLE logbook_entries ADD COLUMN ai_evaluated_at TIMESTAMP NULL",
+		"ALTER TABLE logbook_entries ADD COLUMN is_acknowledged TINYINT(1) NOT NULL DEFAULT 0",
 	}
 	for _, stmt := range statements {
 		if _, err := db.Exec(stmt); err != nil && !isDuplicateColumnErr(err) {
 			log.Printf("logbook schema migrate: %v", err)
 		}
 	}
+}
+
+type CriticalLogbookAlert struct {
+	ID             int64  `json:"id"`
+	StudentID      int64  `json:"student_id"`
+	FirstName      string `json:"first_name"`
+	LastName       string `json:"last_name"`
+	StudentName    string `json:"student_name"`
+	Date           string `json:"date"`
+	Blocker        string `json:"blocker"`
+	AIFeedback     string `json:"ai_feedback"`
+	Feedback       string `json:"feedback"`
+	IsCritical     bool   `json:"is_critical"`
+	IsAcknowledged bool   `json:"is_acknowledged"`
+}
+
+// ListCriticalLogbooksHandler handles GET /api/teacher/critical-logbooks.
+func ListCriticalLogbooksHandler(w http.ResponseWriter, r *http.Request) {
+	if db == nil {
+		writeError(w, http.StatusServiceUnavailable, "database is not available")
+		return
+	}
+	if roleFromContext(r.Context()) != roleTeacher {
+		writeError(w, http.StatusForbidden, "only teachers can view critical logbooks")
+		return
+	}
+
+	rows, err := db.Query(
+		`SELECT e.id,
+		        e.student_id,
+		        IFNULL(sp.first_name, ''),
+		        IFNULL(sp.last_name, ''),
+		        DATE_FORMAT(e.date, '%Y-%m-%d'),
+		        IFNULL(e.blocker, ''),
+		        IFNULL(e.ai_feedback, ''),
+		        IFNULL(e.ai_is_critical, 0),
+		        IFNULL(e.is_acknowledged, 0)
+		 FROM logbook_entries e
+		 INNER JOIN users u ON u.id = e.student_id
+		 LEFT JOIN student_profiles sp ON sp.user_id = u.id
+		 WHERE IFNULL(e.ai_is_critical, 0) = 1
+		   AND IFNULL(e.is_acknowledged, 0) = 0
+		 ORDER BY e.date DESC, e.id DESC`,
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load critical logbooks")
+		return
+	}
+	defer rows.Close()
+
+	alerts := []CriticalLogbookAlert{}
+	for rows.Next() {
+		var a CriticalLogbookAlert
+		var criticalFlag, ackFlag int
+		if err := rows.Scan(
+			&a.ID,
+			&a.StudentID,
+			&a.FirstName,
+			&a.LastName,
+			&a.Date,
+			&a.Blocker,
+			&a.AIFeedback,
+			&criticalFlag,
+			&ackFlag,
+		); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to read critical logbooks")
+			return
+		}
+		a.IsCritical = criticalFlag == 1
+		a.IsAcknowledged = ackFlag == 1
+		a.Feedback = a.AIFeedback
+		a.StudentName = strings.TrimSpace(a.FirstName + " " + a.LastName)
+		if a.StudentName == "" {
+			a.StudentName = "นักศึกษา"
+		}
+		alerts = append(alerts, a)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read critical logbooks")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"data": alerts})
+}
+
+// AcknowledgeCriticalLogbookHandler handles PUT /api/teacher/critical-logbooks/{id}/acknowledge.
+func AcknowledgeCriticalLogbookHandler(w http.ResponseWriter, r *http.Request) {
+	if db == nil {
+		writeError(w, http.StatusServiceUnavailable, "database is not available")
+		return
+	}
+	if roleFromContext(r.Context()) != roleTeacher {
+		writeError(w, http.StatusForbidden, "only teachers can acknowledge critical logbooks")
+		return
+	}
+
+	id, err := strconv.ParseInt(mux.Vars(r)["id"], 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid logbook id")
+		return
+	}
+
+	result, err := db.Exec(
+		`UPDATE logbook_entries
+		 SET is_acknowledged = 1
+		 WHERE id = ? AND IFNULL(ai_is_critical, 0) = 1`,
+		id,
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to acknowledge logbook")
+		return
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to acknowledge logbook")
+		return
+	}
+	if affected == 0 {
+		writeError(w, http.StatusNotFound, "critical logbook not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message":         "acknowledged",
+		"id":              id,
+		"is_acknowledged": true,
+	})
 }
 
 func isDuplicateColumnErr(err error) bool {

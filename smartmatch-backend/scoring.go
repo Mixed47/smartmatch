@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -36,8 +35,8 @@ var productionEvidenceKeywords = []string{
 	"โปรดักชัน",
 }
 
-func hasProductionEvidence(tasks string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(tasks))
+func looksProductionLevel(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
 	if normalized == "" {
 		return false
 	}
@@ -66,90 +65,49 @@ func isASCIIWord(s string) bool {
 	return true
 }
 
-func logbookEvaluationPrompt(tasks, blocker string) string {
-	blockerText := strings.TrimSpace(blocker)
-	if blockerText == "" {
-		blockerText = "(ไม่มีอุปสรรคที่ระบุ)"
-	}
+func candidateScoringPrompt(experience string) string {
+	return fmt.Sprintf(`คุณคือ Senior Technical Recruiter AI ของระบบ AI-InternMatch
+จงสกัดทักษะจากเรซูเม่/ทรานสคริปต์/ข้อความประสบการณ์ แล้วประเมินเกรดผู้สมัครเป็น JSON ล้วนเท่านั้น ห้ามมี markdown
 
-	return fmt.Sprintf(`คุณคืออาจารย์ที่ปรึกษาสหกิจศึกษา AI ของระบบ AI-InternMatch
-จงประเมินบันทึกประจำวันจาก tasks และ blocker แล้วตอบเป็น JSON ล้วนเท่านั้น ห้ามมี markdown หรือข้อความนอก JSON
-
-งานที่ทำ (tasks):
-%s
-
-ปัญหา/อุปสรรค (blocker):
+ข้อความประสบการณ์เพิ่มเติม:
 %s
 
 โครงสร้างบังคับ:
-{"feedback":"คำแนะนำสั้นๆ ไม่เกิน 2 บรรทัด เป็นภาษาไทย","score":"A","is_critical":false}
+{ "skills": [ {"name": "React", "grade": "C", "type": "Hard Skill", "source": "Resume"} ] }
 
-กฎเกรด score ต้องเป็นหนึ่งใน S, A, B, C, D เท่านั้น:
-- S: ให้ได้ก็ต่อเมื่อ tasks มีหลักฐานชัดเจนว่าเป็นงานระดับ Production, ขึ้นระบบจริง, deploy จริง, รับจ้างจริง, ขึ้นเซิร์ฟเวอร์, ลูกค้าจริง, freelance, app store หรือมีรายได้ ห้ามแจก S พร่ำเพรื่อ ถ้าไม่มี keyword/หลักฐานดังกล่าว ห้ามให้ S
-- A: งานคุณภาพสูง มีรายละเอียดชัด แก้ปัญหาได้ดี แต่ยังไม่ถึงงาน production จริง
-- B: ทำงานครบตามหน้าที่ รายละเอียดพอใช้
-- C: งานบางส่วนหรือรายละเอียดบาง ต้องพัฒนาการจดบันทึก
-- D: บันทึกคลุมเครือ น้อยเกินไป หรือแทบไม่สะท้อนงานที่ทำ
+กฎเกรดทักษะ (S, A, B, C, D):
+- S: ให้ได้ก็ต่อเมื่อมีหลักฐานงานระดับ Production, ขึ้นระบบจริง, deploy จริง, freelance, app store, รับจ้างจริง, ลูกค้าจริง หรือมีรายได้ ห้ามแจก S พร่ำเพรื่อ
+- A: ใช้จริงในโปรเจกต์คุณภาพสูง แต่ยังไม่ชัดว่าขึ้น production
+- B: มีการใช้ในโปรเจกต์เรียน/ฝึกงานพอสมควร
+- C: ระบุทักษะได้ แต่หลักฐานยังบาง
+- D: กล่าวถึงเพียงเล็กน้อยหรือยังไม่ชัด
 
-กฎ is_critical:
-- true เฉพาะเมื่ออุปสรรคร้ายแรงและต้องการความช่วยเหลือจากอาจารย์ด่วน เช่น ความปลอดภัย การกลั่นแกล้ง ไม่มีงานทำ ปัญหาสุขภาพร้ายแรง หรือละเมิดจรรยาบรรณ
-- ถ้าไม่มีอุปสรรค หรือเป็นปัญหาเล็กน้อย/เทคนิคทั่วไป ให้เป็น false`, strings.TrimSpace(tasks), blockerText)
+ถ้ากรอกทักษะหลัก เช่น React ให้ขยายแท็กที่เกี่ยวข้องในรายการด้วย เช่น Frontend และ Web Development`, strings.TrimSpace(experience))
 }
 
-func evaluateLogbookWithGemini(tasks, blocker string) (LogbookAIEvaluation, error) {
-	raw, err := callGeminiJSON(logbookEvaluationPrompt(tasks, blocker))
-	if err != nil {
-		return LogbookAIEvaluation{}, err
+func enforceCandidateSkillGrades(skills []SkillItem, evidenceTexts ...string) []SkillItem {
+	evidence := strings.Join(evidenceTexts, " ")
+	out := make([]SkillItem, 0, len(skills))
+	for _, skill := range skills {
+		skill.Name = strings.TrimSpace(skill.Name)
+		if skill.Name == "" {
+			continue
+		}
+		grade := normalizeLetterGrade(skill.Grade)
+		if grade == "" {
+			grade = "C"
+		}
+		combined := evidence + " " + skill.Name + " " + skill.Source + " " + skill.Type
+		if grade == "S" && !looksProductionLevel(combined) {
+			grade = "A"
+		}
+		skill.Grade = grade
+		if strings.TrimSpace(skill.Type) == "" {
+			skill.Type = "Hard Skill"
+		}
+		out = append(out, skill)
 	}
-	evaluation, err := parseLogbookEvaluation(raw)
-	if err != nil {
-		return LogbookAIEvaluation{}, err
-	}
-	return enforceLogbookScoring(tasks, evaluation), nil
-}
-
-func parseLogbookEvaluation(raw string) (LogbookAIEvaluation, error) {
-	clean := extractJSONObject(raw)
-	if clean == "" {
-		return LogbookAIEvaluation{}, fmt.Errorf("empty AI response")
-	}
-
-	var parsed struct {
-		Feedback   string      `json:"feedback"`
-		Score      interface{} `json:"score"`
-		IsCritical interface{} `json:"is_critical"`
-	}
-	if err := json.Unmarshal([]byte(clean), &parsed); err != nil {
-		return LogbookAIEvaluation{}, fmt.Errorf("invalid AI JSON: %w", err)
-	}
-
-	feedback := limitFeedbackLines(strings.TrimSpace(parsed.Feedback), 2)
-	if feedback == "" {
-		return LogbookAIEvaluation{}, fmt.Errorf("AI response missing feedback")
-	}
-
-	score := normalizeLetterGrade(parsed.Score)
-	if score == "" {
-		return LogbookAIEvaluation{}, fmt.Errorf("AI response missing score")
-	}
-
-	return LogbookAIEvaluation{
-		Feedback:   feedback,
-		Score:      score,
-		IsCritical: parseIsCritical(parsed.IsCritical),
-	}, nil
-}
-
-func enforceLogbookScoring(tasks string, evaluation LogbookAIEvaluation) LogbookAIEvaluation {
-	evaluation.Score = normalizeLetterGrade(evaluation.Score)
-	if evaluation.Score == "" {
-		evaluation.Score = "B"
-	}
-	if evaluation.Score == "S" && !hasProductionEvidence(tasks) {
-		evaluation.Score = "A"
-	}
-	evaluation.Feedback = limitFeedbackLines(evaluation.Feedback, 2)
-	return evaluation
+	return out
 }
 
 func normalizeLetterGrade(value interface{}) string {
@@ -181,76 +139,5 @@ func normalizeLetterGrade(value interface{}) string {
 			return string(letters)
 		}
 	}
-
-	if n, ok := numericScore(raw); ok {
-		switch {
-		case n >= 9:
-			return "A"
-		case n >= 7:
-			return "B"
-		case n >= 5:
-			return "C"
-		default:
-			return "D"
-		}
-	}
 	return ""
-}
-
-func numericScore(raw string) (float64, bool) {
-	var digits strings.Builder
-	for _, r := range raw {
-		if unicode.IsDigit(r) || r == '.' {
-			digits.WriteRune(r)
-			continue
-		}
-		if digits.Len() > 0 {
-			break
-		}
-	}
-	if digits.Len() == 0 {
-		return 0, false
-	}
-	var n float64
-	if _, err := fmt.Sscanf(digits.String(), "%f", &n); err != nil {
-		return 0, false
-	}
-	return n, true
-}
-
-func limitFeedbackLines(text string, maxLines int) string {
-	text = strings.TrimSpace(text)
-	if text == "" || maxLines <= 0 {
-		return text
-	}
-	parts := strings.Split(text, "\n")
-	kept := make([]string, 0, maxLines)
-	for _, part := range parts {
-		line := strings.TrimSpace(part)
-		if line == "" {
-			continue
-		}
-		kept = append(kept, line)
-		if len(kept) >= maxLines {
-			break
-		}
-	}
-	return strings.Join(kept, "\n")
-}
-
-func parseIsCritical(value interface{}) bool {
-	switch v := value.(type) {
-	case bool:
-		return v
-	case string:
-		s := strings.ToLower(strings.TrimSpace(v))
-		return s == "true" || s == "1" || s == "yes"
-	case float64:
-		return v != 0
-	case json.Number:
-		n, err := v.Float64()
-		return err == nil && n != 0
-	default:
-		return false
-	}
 }

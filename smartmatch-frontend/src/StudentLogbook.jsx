@@ -100,15 +100,9 @@ function toAnalysis(raw) {
   if (!feedback) return null;
   return {
     feedback,
-    score: normalizeDisplayGrade(ev.score),
+    score: String(ev.score ?? '').trim(),
     is_critical: Boolean(ev.is_critical),
   };
-}
-
-function normalizeDisplayGrade(score) {
-  const raw = String(score || '').toUpperCase().trim();
-  const match = raw.match(/\b([SABCD])\b/);
-  return match ? match[1] : raw;
 }
 
 function toTimelineEntry(raw, fallback = {}) {
@@ -641,8 +635,6 @@ export default function StudentLogbook() {
               const analysis = analyses[entry.id] || analyses[String(entry.id)] || entry.evaluation;
               const aiError = aiErrors[entry.id] || aiErrors[String(entry.id)];
               const isEvaluating = evaluatingId === entry.id || String(evaluatingId) === String(entry.id);
-              const grade = normalizeDisplayGrade(analysis?.score);
-              const isGradeS = grade === 'S';
 
               return (
                 <article
@@ -707,67 +699,32 @@ export default function StudentLogbook() {
                   )}
 
                   {analysis && !isEvaluating && (
-                    <div
-                      className={`mt-5 overflow-hidden rounded-3xl p-px shadow-lg ${
-                        isGradeS
-                          ? 'bg-gradient-to-br from-amber-300 via-yellow-400 to-orange-400 shadow-amber-500/30'
-                          : 'bg-gradient-to-br from-[#4f46e5] via-indigo-500 to-violet-600 shadow-indigo-500/20 dark:shadow-indigo-900/40'
-                      }`}
-                    >
-                      <div
-                        className={`rounded-[1.4rem] p-5 ${
-                          isGradeS
-                            ? 'bg-gradient-to-br from-amber-50 via-white to-yellow-50 dark:from-[#2a2110] dark:via-[#16130a] dark:to-[#1c1608]'
-                            : 'bg-white dark:bg-[#0f0f12]'
-                        }`}
-                      >
+                    <div className="mt-5 overflow-hidden rounded-3xl bg-gradient-to-br from-[#4f46e5] via-indigo-500 to-violet-600 p-px shadow-lg shadow-indigo-500/20 dark:shadow-indigo-900/40">
+                      <div className="rounded-[1.4rem] bg-white p-5 dark:bg-[#0f0f12]">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
-                            <p className={`m-0 text-[10px] font-black uppercase tracking-widest ${isGradeS ? 'text-amber-600 dark:text-amber-300' : 'text-indigo-500 dark:text-indigo-300'}`}>
+                            <p className="m-0 text-[10px] font-black uppercase tracking-widest text-indigo-500 dark:text-indigo-300">
                               AI Dashboard · สรุปผลเล่มสหกิจ
                             </p>
                             <h3 className="m-0 mt-1 text-base font-black text-slate-900 dark:text-white">
                               คำแนะนำจาก AI
                             </h3>
                           </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            {isGradeS && (
-                              <span className="rounded-full bg-gradient-to-r from-amber-400 to-yellow-500 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-amber-950 shadow-sm">
-                                Production Grade S
-                              </span>
-                            )}
-                            {analysis.is_critical ? (
-                              <span className="rounded-full bg-rose-600 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-white shadow-sm shadow-rose-500/30">
-                                รออาจารย์ตรวจสอบ
-                              </span>
-                            ) : (
-                              <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300">
-                                ไม่ถึงขั้นวิกฤต
-                              </span>
-                            )}
-                          </div>
+                          {analysis.is_critical && (
+                            <span className="rounded-full bg-rose-600 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-white shadow-sm shadow-rose-500/30">
+                              รออาจารย์ตรวจสอบ
+                            </span>
+                          )}
                         </div>
                         <div className="mt-4 grid gap-4 sm:grid-cols-[auto_1fr] sm:items-start">
-                          <div
-                            className={`rounded-2xl px-5 py-4 text-center ${
-                              isGradeS
-                                ? 'bg-gradient-to-b from-amber-300 to-yellow-500 text-amber-950 shadow-inner'
-                                : 'bg-indigo-50 dark:bg-indigo-500/15'
-                            }`}
-                          >
-                            <p className={`m-0 text-[10px] font-bold uppercase tracking-wide ${isGradeS ? 'text-amber-900/80' : 'text-indigo-400 dark:text-indigo-300'}`}>เกรด</p>
-                            <p className={`m-0 mt-1 text-4xl font-black ${isGradeS ? 'text-amber-950 drop-shadow-sm' : 'text-[#4f46e5] dark:text-indigo-200'}`}>
-                              {grade || '-'}
+                          <div className="rounded-2xl bg-indigo-50 px-5 py-4 text-center dark:bg-indigo-500/15">
+                            <p className="m-0 text-[10px] font-bold uppercase tracking-wide text-indigo-400 dark:text-indigo-300">คะแนน</p>
+                            <p className="m-0 mt-1 text-3xl font-black text-[#4f46e5] dark:text-indigo-200">
+                              {analysis.score || '-'}
                             </p>
                           </div>
-                          <div
-                            className={`rounded-2xl border p-4 ${
-                              isGradeS
-                                ? 'border-amber-300/70 bg-white/80 dark:border-amber-500/30 dark:bg-black/20'
-                                : 'border-indigo-100 bg-indigo-50/50 dark:border-white/10 dark:bg-white/5'
-                            }`}
-                          >
-                            <p className={`m-0 text-[10px] font-black uppercase tracking-widest ${isGradeS ? 'text-amber-700 dark:text-amber-300' : 'text-indigo-400 dark:text-indigo-300'}`}>
+                          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4 dark:border-white/10 dark:bg-white/5">
+                            <p className="m-0 text-[10px] font-black uppercase tracking-widest text-indigo-400 dark:text-indigo-300">
                               Feedback
                             </p>
                             <p className="m-0 mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-zinc-200">

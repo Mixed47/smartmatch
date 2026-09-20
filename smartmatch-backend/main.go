@@ -479,9 +479,12 @@ func extractSkillsGradedHandler(w http.ResponseWriter, r *http.Request) {
 			imageURL = "/api/files/" + filename
 		}
 	}
-	promptText := fmt.Sprintf(`คุณคือ Senior Technical Recruiter AI จงสกัดทักษะ (Skills) จากเอกสาร/ข้อความ: "%s" ประเมินเกรด A, B, C, D ตามกฎเหล็ก: ตอบกลับเป็น JSON ล้วน: { "skills": [ {"name": "React", "grade": "C", "type": "Hard Skill", "source": "Resume"} ] }`, expText)
+	promptText := candidateScoringPrompt(expText)
 	aiText, _ := callGeminiAPI(promptText, base64Data, mimeType)
 	cleanResponse := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(aiText, "```json", ""), "```", ""))
+	if extracted := extractJSONObject(cleanResponse); extracted != "" {
+		cleanResponse = extracted
+	}
 	var aiData map[string]interface{}
 	json.Unmarshal([]byte(cleanResponse), &aiData)
 	if aiData == nil {
@@ -494,6 +497,8 @@ func extractSkillsGradedHandler(w http.ResponseWriter, r *http.Request) {
 		encoded, _ := json.Marshal(raw)
 		_ = json.Unmarshal(encoded, &skills)
 	}
+	skills = enforceCandidateSkillGrades(skills, expText)
+	aiData["skills"] = skills
 	if err := saveStudentSkills(userID, skills, imageURL); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save extracted skills")
 		return

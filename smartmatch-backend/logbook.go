@@ -4,10 +4,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -260,6 +262,123 @@ func EvaluateLogbookHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, evaluation)
 }
 
+func evaluateLogbookWithGemini(tasks, blocker string) (LogbookAIEvaluation, error) {
+	blockerText := strings.TrimSpace(blocker)
+	if blockerText == "" {
+		blockerText = "(ไม่มีอุปสรรคที่ระบุ)"
+	}
+
+	prompt := fmt.Sprintf(`คุณคืออาจารย์ที่ปรึกษาสหกิจศึกษา AI ของระบบ AI-InternMatch
+จงประเมินบันทึกประจำวันจากงานที่ทำและอุปสรรค แล้วตอบเป็น JSON ล้วนเท่านั้น ห้ามมี markdown หรือข้อความนอก JSON
+
+งานที่ทำ (tasks):
+%s
+
+ปัญหา/อุปสรรค (blocker):
+%s
+
+โครงสร้างบังคับ:
+{"feedback":"คำแนะนำสั้นๆ ไม่เกิน 2 บรรทัด เป็นภาษาไทย","score":"8/10","is_critical":false}
+
+กฎการให้คะแนน:
+- score เป็นคะแนนงานรายวัน 1-10 เท่านั้น เช่น "8/10" ห้ามใช้เกรด S, A, B, C, D
+- ประเมินจากความชัดเจนของงาน ความพยายาม และการจัดการอุปสรรคในวันนั้น
+- is_critical เป็น true เฉพาะเมื่ออุปสรรคร้ายแรงและต้องการความช่วยเหลือจากอาจารย์ด่วน เช่น ความปลอดภัย การกลั่นแกล้ง ไม่มีงานทำ ปัญหาสุขภาพร้ายแรง หรือละเมิดจรรยาบรรณ
+- ถ้าไม่มีอุปสรรค หรือเป็นปัญหาเล็กน้อย/เทคนิคทั่วไป ให้ is_critical เป็น false`, strings.TrimSpace(tasks), blockerText)
+
+	raw, err := callGeminiJSON(prompt)
+	if err != nil {
+		return LogbookAIEvaluation{}, err
+	}
+	return parseLogbookEvaluation(raw)
+}
+
+func parseLogbookEvaluation(raw string) (LogbookAIEvaluation, error) {
+	clean := extractJSONObject(raw)
+	if clean == "" {
+		return LogbookAIEvaluation{}, errors.New("empty AI response")
+	}
+
+	var parsed struct {
+		Feedback   string      `json:"feedback"`
+		Score      interface{} `json:"score"`
+		IsCritical interface{} `json:"is_critical"`
+	}
+	if err := json.Unmarshal([]byte(clean), &parsed); err != nil {
+		return LogbookAIEvaluation{}, fmt.Errorf("invalid AI JSON: %w", err)
+	}
+
+	feedback := strings.TrimSpace(parsed.Feedback)
+	if feedback == "" {
+		return LogbookAIEvaluation{}, errors.New("AI response missing feedback")
+	}
+
+	score := formatLogbookDailyScore(parsed.Score)
+	if score == "" {
+		return LogbookAIEvaluation{}, errors.New("AI response missing score")
+	}
+
+	return LogbookAIEvaluation{
+		Feedback:   feedback,
+		Score:      score,
+		IsCritical: parseIsCritical(parsed.IsCritical),
+	}, nil
+}
+
+func formatLogbookDailyScore(value interface{}) string {
+	if value == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(fmt.Sprint(value))
+	if raw == "" || strings.EqualFold(raw, "<nil>") {
+		return ""
+	}
+	upper := strings.ToUpper(raw)
+	if match := regexp.MustCompile(`\b([SABCD])\b`).FindStringSubmatch(upper); len(match) == 2 && !strings.ContainsAny(raw, "0123456789") {
+		return ""
+	}
+
+	var digits strings.Builder
+	for _, r := range raw {
+		if r >= '0' && r <= '9' {
+			digits.WriteRune(r)
+			if digits.Len() >= 2 {
+				break
+			}
+			continue
+		}
+		if digits.Len() > 0 {
+			break
+		}
+	}
+	if digits.Len() == 0 {
+		return ""
+	}
+	n := 0
+	fmt.Sscanf(digits.String(), "%d", &n)
+	if n < 1 {
+		n = 1
+	}
+	if n > 10 {
+		n = 10
+	}
+	return fmt.Sprintf("%d/10", n)
+}
+
+func parseIsCritical(value interface{}) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		s := strings.ToLower(strings.TrimSpace(v))
+		return s == "true" || s == "1" || s == "yes"
+	case float64:
+		return v != 0
+	default:
+		return false
+	}
+}
+
 func extractJSONObject(raw string) string {
 	clean := strings.TrimSpace(raw)
 	clean = strings.TrimPrefix(clean, "```json")
@@ -319,7 +438,7 @@ func evaluationFromColumns(feedback, score sql.NullString, critical sql.NullBool
 	}
 	return &LogbookAIEvaluation{
 		Feedback:   text,
-		Score:      normalizeLetterGrade(strings.TrimSpace(score.String)),
+		Score:      strings.TrimSpace(score.String),
 		IsCritical: critical.Valid && critical.Bool,
 	}
 }

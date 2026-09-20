@@ -139,9 +139,7 @@ export default function StudentLogbook() {
   const [entries, setEntries] = useState([]);
   const [listError, setListError] = useState('');
   const [listLoading, setListLoading] = useState(true);
-  const [evaluatingId, setEvaluatingId] = useState(null);
   const [analyses, setAnalyses] = useState({});
-  const [aiErrors, setAiErrors] = useState({});
   const [viewYear, setViewYear] = useState(() => new Date().getFullYear());
   const [viewMonth, setViewMonth] = useState(() => new Date().getMonth());
   const [selectedHistoryDate, setSelectedHistoryDate] = useState(null);
@@ -166,15 +164,6 @@ export default function StudentLogbook() {
     if (!selectedHistoryDate) return list;
     return list.filter((entry) => entry.date === selectedHistoryDate);
   }, [entries, selectedHistoryDate]);
-
-  const handleAuthFailure = useCallback(
-    (status, serverError) => {
-      setError(authErrorMessage(status, serverError));
-      clearSession();
-      setTimeout(() => navigate('/login', { replace: true }), 800);
-    },
-    [navigate],
-  );
 
   const loadEntries = useCallback(async (silent = false) => {
     const token = localStorage.getItem('token');
@@ -215,7 +204,7 @@ export default function StudentLogbook() {
         setListLoading(false);
       }
     }
-  }, [handleAuthFailure]);
+  }, []);
 
   const loadEntriesRef = useRef(loadEntries);
   loadEntriesRef.current = loadEntries;
@@ -317,63 +306,6 @@ export default function StudentLogbook() {
     }
   };
 
-  const handleEvaluate = async (entryId) => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      handleAuthFailure(401, 'not logged in');
-      return;
-    }
-
-    setEvaluatingId(entryId);
-    setAiErrors((prev) => {
-      const next = { ...prev };
-      delete next[entryId];
-      return next;
-    });
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
-
-    try {
-      const data = await apiJson(`/api/logbook/${entryId}/evaluate`, {
-        method: 'POST',
-        signal: controller.signal,
-      });
-
-      const analysis = toAnalysis(data);
-      if (!analysis) {
-        setAiErrors((prev) => ({
-          ...prev,
-          [entryId]: 'วิเคราะห์สำเร็จ แต่ระบบไม่ได้ส่งคำแนะนำกลับมา',
-        }));
-        return;
-      }
-      setAnalyses((prev) => ({
-        ...prev,
-        [entryId]: analysis,
-      }));
-      setEntries((prev) =>
-        (Array.isArray(prev) ? prev : []).map((entry) =>
-          String(entry.id) === String(entryId) ? { ...entry, evaluation: analysis } : entry,
-        ),
-      );
-    } catch (err) {
-      if (err?.status === 401) {
-        return;
-      }
-      const aborted = err?.name === 'AbortError';
-      setAiErrors((prev) => ({
-        ...prev,
-        [entryId]: aborted
-          ? aiErrorMessage(0, '', true)
-          : aiErrorMessage(err?.status, err?.data?.error, false),
-      }));
-    } finally {
-      clearTimeout(timer);
-      setEvaluatingId(null);
-    }
-  };
-
   const shiftMonth = (delta) => {
     const next = new Date(viewYear, viewMonth + delta, 1);
     setViewYear(next.getFullYear());
@@ -408,7 +340,7 @@ export default function StudentLogbook() {
             จดบันทึกเล่มสหกิจ
           </h1>
           <p className="mt-2 text-sm font-medium text-slate-500 dark:text-zinc-400">
-            Digital Logbook — บันทึกงานประจำวัน ดูวันที่จดแล้วบนปฏิทิน และให้ AI วิเคราะห์คำแนะนำ
+            Digital Logbook — บันทึกงานประจำวัน แล้วระบบจะให้ AI ประเมินผลทันที
           </p>
         </div>
 
@@ -652,8 +584,6 @@ export default function StudentLogbook() {
             )}
             {visibleEntries.map((entry) => {
               const analysis = analyses[entry.id] || analyses[String(entry.id)] || entry.evaluation;
-              const aiError = aiErrors[entry.id] || aiErrors[String(entry.id)];
-              const isEvaluating = evaluatingId === entry.id || String(evaluatingId) === String(entry.id);
 
               return (
                 <article
@@ -661,63 +591,23 @@ export default function StudentLogbook() {
                   className="relative rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-[#161616] sm:pl-12"
                 >
                   <span className="absolute left-4 top-7 hidden h-3.5 w-3.5 rounded-full border-2 border-[#4f46e5] bg-white sm:block dark:bg-[#161616]" />
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="m-0 text-xs font-bold uppercase tracking-wide text-indigo-500 dark:text-indigo-300">
-                        {formatThaiDate(entry.date)}
+                  <div>
+                    <p className="m-0 text-xs font-bold uppercase tracking-wide text-indigo-500 dark:text-indigo-300">
+                      {formatThaiDate(entry.date)}
+                    </p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-800 dark:text-zinc-200">
+                      {entry.tasks}
+                    </p>
+                    {entry.blocker ? (
+                      <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+                        อุปสรรค: {entry.blocker}
                       </p>
-                      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-800 dark:text-zinc-200">
-                        {entry.tasks}
-                      </p>
-                      {entry.blocker ? (
-                        <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
-                          อุปสรรค: {entry.blocker}
-                        </p>
-                      ) : (
-                        <p className="mt-3 text-xs font-medium text-slate-400">วันนี้ไม่มีอุปสรรคที่ระบุ</p>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      disabled={isEvaluating}
-                      onClick={() => handleEvaluate(entry.id)}
-                      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-indigo-50 px-4 py-3 text-sm font-bold text-[#4f46e5] transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-indigo-500/15 dark:text-indigo-200 dark:hover:bg-indigo-500/25"
-                    >
-                      {isEvaluating ? (
-                        <>
-                          <Spinner />
-                          กำลังวิเคราะห์...
-                        </>
-                      ) : analysis ? (
-                        '✨ วิเคราะห์อีกครั้ง'
-                      ) : (
-                        '✨ AI วิเคราะห์การทำงาน'
-                      )}
-                    </button>
+                    ) : (
+                      <p className="mt-3 text-xs font-medium text-slate-400">วันนี้ไม่มีอุปสรรคที่ระบุ</p>
+                    )}
                   </div>
 
-                  {isEvaluating && (
-                    <div className="mt-5 flex items-center gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-sm font-medium text-indigo-700 dark:border-indigo-400/20 dark:bg-indigo-500/10 dark:text-indigo-200">
-                      <Spinner className="h-5 w-5" />
-                      AI กำลังอ่านบันทึกและสรุปคำแนะนำ กรุณารอสักครู่...
-                    </div>
-                  )}
-
-                  {aiError && (
-                    <div className="mt-5 rounded-2xl border border-rose-200 bg-gradient-to-br from-rose-50 to-orange-50 p-5 dark:border-rose-500/30 dark:from-rose-500/15 dark:to-orange-500/10">
-                      <p className="m-0 text-sm font-black text-rose-700 dark:text-rose-300">วิเคราะห์ไม่สำเร็จ</p>
-                      <p className="mt-1 text-sm leading-relaxed text-rose-600 dark:text-rose-300">{aiError}</p>
-                      <button
-                        type="button"
-                        onClick={() => handleEvaluate(entry.id)}
-                        className="mt-3 text-sm font-bold text-rose-700 underline dark:text-rose-300"
-                      >
-                        ลองอีกครั้ง
-                      </button>
-                    </div>
-                  )}
-
-                  {analysis && !isEvaluating && (
+                  {analysis ? (
                     <div className="mt-5 overflow-hidden rounded-3xl bg-gradient-to-br from-[#4f46e5] via-indigo-500 to-violet-600 p-px shadow-lg shadow-indigo-500/20 dark:shadow-indigo-900/40">
                       <div className="rounded-[1.4rem] bg-white p-5 dark:bg-[#0f0f12]">
                         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -753,6 +643,8 @@ export default function StudentLogbook() {
                         </div>
                       </div>
                     </div>
+                  ) : (
+                    <p className="mt-4 text-xs font-medium text-slate-400">ยังไม่มีผลการประเมินจาก AI สำหรับบันทึกนี้</p>
                   )}
                 </article>
               );

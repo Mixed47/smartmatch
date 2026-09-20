@@ -485,18 +485,14 @@ func extractSkillsGradedHandler(w http.ResponseWriter, r *http.Request) {
 	aiText, err := callGeminiAPI(promptText, base64Data, mimeType)
 	if err != nil {
 		log.Printf("extract-skills-graded gemini: %v", err)
-		if isTimeoutErr(err) {
-			writeError(w, http.StatusGatewayTimeout, "AI request timed out")
-			return
-		}
-		writeError(w, http.StatusBadGateway, "AI skill extraction failed")
+		writeError(w, http.StatusInternalServerError, "AI skill extraction failed")
 		return
 	}
 
 	skills, err := parseGradedSkillsResponse(aiText)
 	if err != nil {
 		log.Printf("extract-skills-graded parse: %v", err)
-		writeError(w, http.StatusBadGateway, "AI skill extraction failed")
+		writeError(w, http.StatusInternalServerError, "AI skill extraction failed")
 		return
 	}
 	skills = enforceCandidateSkillGrades(skills, expText)

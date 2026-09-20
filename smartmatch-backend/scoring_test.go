@@ -8,7 +8,6 @@ func TestLooksProductionLevel(t *testing.T) {
 	}
 	cases := []string{
 		"deploy ขึ้น production สำหรับลูกค้าจริง",
-		"รับจ้าง freelance และขึ้นเซิร์ฟเวอร์",
 		"ใช้งานจริงบนระบบจริง",
 		"ขึ้นโปรดักชันให้ลูกค้า",
 		"Deploy ขึ้นระบบจริง",
@@ -20,26 +19,39 @@ func TestLooksProductionLevel(t *testing.T) {
 	}
 }
 
-func TestEnforceCandidateSkillGradesPromotesS(t *testing.T) {
+func TestEnforceCandidateSkillGradesByRubric(t *testing.T) {
 	got := enforceCandidateSkillGrades([]SkillItem{
 		{Name: "React", Grade: "A", Source: "Resume"},
 	}, "Deploy ขึ้นระบบจริงด้วย React")
-	if len(got) != 1 || got[0].Grade != "S" {
-		t.Fatalf("expected production React A to become S, got %+v", got)
+	if !hasSkillGrade(got, "React", "S") {
+		t.Fatalf("expected production React to be S, got %+v", got)
+	}
+	if !hasSkillGrade(got, "Frontend", "S") || !hasSkillGrade(got, "Web Development", "S") {
+		t.Fatalf("expected React to tag Frontend and Web Development, got %+v", got)
 	}
 
 	got = enforceCandidateSkillGrades([]SkillItem{
-		{Name: "Go", Grade: "S", Source: "Freelance production deploy"},
-	}, "รับจ้าง freelance ให้ลูกค้า")
-	if len(got) != 1 || got[0].Grade != "S" {
-		t.Fatalf("expected production Go to keep S, got %+v", got)
+		{Name: "Go", Grade: "B", Source: "Resume"},
+	}, "ใช้ Go ใน Senior Project / โครงงานจบ")
+	if !hasSkillGrade(got, "Go", "A") {
+		t.Fatalf("expected senior project Go to be A, got %+v", got)
+	}
+	if !hasSkillGrade(got, "Backend", "A") {
+		t.Fatalf("expected Go to tag Backend, got %+v", got)
 	}
 
 	got = enforceCandidateSkillGrades([]SkillItem{
-		{Name: "React", Grade: "S", Source: "Resume OCR: deploy to production"},
-	}, "")
-	if len(got) != 1 || got[0].Grade != "S" {
-		t.Fatalf("expected AI/resume S evidence in source to stay S, got %+v", got)
+		{Name: "Python", Grade: "A", Source: "Resume"},
+	}, "ทำโปรเจกต์รายวิชาทั่วไปด้วย Python")
+	if !hasSkillGrade(got, "Python", "B") {
+		t.Fatalf("expected coursework Python to be B, got %+v", got)
+	}
+
+	got = enforceCandidateSkillGrades([]SkillItem{
+		{Name: "Docker", Grade: "S", Source: "Resume"},
+	}, "กำลังศึกษา Docker เบื้องต้น")
+	if !hasSkillGrade(got, "Docker", "D") {
+		t.Fatalf("expected beginner Docker S to become D, got %+v", got)
 	}
 }
 
@@ -50,4 +62,13 @@ func TestNormalizeLetterGrade(t *testing.T) {
 	if normalizeLetterGrade("Grade A") != "A" {
 		t.Fatal("expected A")
 	}
+}
+
+func hasSkillGrade(skills []SkillItem, name, grade string) bool {
+	for _, skill := range skills {
+		if skill.Name == name && skill.Grade == grade {
+			return true
+		}
+	}
+	return false
 }

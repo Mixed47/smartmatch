@@ -24,7 +24,6 @@ var productionEvidenceKeywords = []string{
 	"มีผู้ใช้งานจริง",
 	"ผู้ใช้งานจริง",
 	"ลูกค้าจริง",
-	"ลูกค้า",
 	"ขึ้นระบบ",
 	"ขึ้นระบบจริง",
 	"ระบบจริง",
@@ -48,24 +47,6 @@ var freelanceKeywords = []string{
 	"จ้างทำ",
 }
 
-var workExperienceKeywords = []string{
-	"work experience",
-	"working experience",
-	"full-time",
-	"full time",
-	"part-time job",
-	"internship",
-	"intern at",
-	"co-op",
-	"ประสบการณ์ทำงานจริง",
-	"ประสบการณ์ทำงาน",
-	"ทำงานจริง",
-	"พนักงาน",
-	"ฝึกงานที่",
-	"ฝึกงาน ณ",
-	"บริษัท",
-}
-
 var seniorProjectKeywords = []string{
 	"senior project",
 	"thesis",
@@ -83,23 +64,15 @@ var courseworkKeywords = []string{
 	"coursework",
 	"course project",
 	"class project",
+	"homework",
+	"assignment",
 	"รายวิชา",
 	"วิชาเรียน",
 	"โปรเจกต์รายวิชา",
 	"งานรายวิชา",
+	"การบ้าน",
 	"mini project",
 	"laboratory",
-}
-
-var beginnerKeywords = []string{
-	"beginner",
-	"introductory",
-	"currently learning",
-	"เพิ่งเริ่ม",
-	"กำลังศึกษา",
-	"กำลังเรียน",
-	"เบื้องต้น",
-	"พื้นฐาน",
 }
 
 var skillTagGroups = []struct {
@@ -135,64 +108,16 @@ func looksFreelanceLevel(text string) bool {
 	return containsAnyKeyword(text, freelanceKeywords)
 }
 
-func looksWorkExperienceLevel(text string) bool {
-	return containsAnyKeyword(text, workExperienceKeywords)
+func looksSeniorProjectLevel(text string) bool {
+	return containsAnyKeyword(text, seniorProjectKeywords)
 }
 
-func looksGradeS(text string) bool {
-	return looksProductionLevel(text) || looksFreelanceLevel(text) || looksWorkExperienceLevel(text)
+func looksCourseworkLevel(text string) bool {
+	return containsAnyKeyword(text, courseworkKeywords)
 }
 
-func looksGradeA(text string) bool {
-	return containsAnyKeyword(text, seniorProjectKeywords) || hasTranscriptGrade(text, "A")
-}
-
-func looksGradeB(text string) bool {
-	return containsAnyKeyword(text, courseworkKeywords) || hasTranscriptGrade(text, "B")
-}
-
-func looksGradeC(text string) bool {
-	return hasTranscriptGrade(text, "C") || looksNameOnlySkill(text)
-}
-
-func looksGradeD(text string) bool {
-	return hasTranscriptGrade(text, "D") || containsAnyKeyword(text, beginnerKeywords)
-}
-
-func looksNameOnlySkill(text string) bool {
-	lower := strings.ToLower(text)
-	markers := []string{
-		"แค่ชื่อ",
-		"ระบุมาแค่",
-		"ไม่ได้เขียนอธิบาย",
-		"listed only",
-		"skill name only",
-		"mentioned only",
-	}
-	for _, marker := range markers {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
-}
-
-func hasTranscriptGrade(text, grade string) bool {
-	lower := strings.ToLower(text)
-	g := strings.ToLower(grade)
-	patterns := []string{
-		"เกรด " + g,
-		"ได้เกรด " + g,
-		"grade " + g,
-		"got " + g,
-		"transcript " + g,
-	}
-	for _, pattern := range patterns {
-		if strings.Contains(lower, pattern) {
-			return true
-		}
-	}
-	return false
+func hasProductionOrFreelanceEvidence(text string) bool {
+	return looksProductionLevel(text) || looksFreelanceLevel(text)
 }
 
 func containsAnyKeyword(text string, keywords []string) bool {
@@ -235,23 +160,6 @@ func isASCIIWord(s string) bool {
 	return true
 }
 
-func evidenceGrade(text string) string {
-	switch {
-	case looksGradeS(text):
-		return "S"
-	case looksGradeA(text):
-		return "A"
-	case looksGradeB(text):
-		return "B"
-	case looksGradeD(text):
-		return "D"
-	case looksGradeC(text):
-		return "C"
-	default:
-		return ""
-	}
-}
-
 func candidateScoringPrompt(experience string) string {
 	return fmt.Sprintf(`คุณคือ Senior Technical Recruiter AI ของระบบ AI-InternMatch
 จงอ่านเรซูเม่/ทรานสคริปต์/ข้อความประสบการณ์ทีละประโยค (Evidence) แล้วค่อยตัดสินเกรดตามกฎด้านล่างแบบเป๊ะๆ ห้ามคิดเกณฑ์เอง ห้ามมีข้อความนอก JSON
@@ -262,20 +170,27 @@ func candidateScoringPrompt(experience string) string {
 โครงสร้างบังคับ:
 { "skills": [ {"name": "React", "grade": "A", "type": "Hard Skill", "source": "ประโยคหลักฐานที่ใช้อ้าง"} ] }
 
+Strict Instruction (บังคับ):
+คุณต้องให้เกรด S, A, B, C, D ตามกฎอย่างเคร่งครัด ห้ามให้เกรด S กับงานที่เป็นโปรเจกต์จบ (Senior Project) หรือการบ้านรายวิชาเด็ดขาด งานเหล่านั้นต้องได้เกรด A หรือ B เท่านั้น
+
 กฎเกรด (ใช้ตามนี้เท่านั้น):
-- เกรด S: ทักษะที่ใช้ใน "การรับงานจริง (Freelance)" หรือ "มีผู้ใช้งานจริง (Production/Deploy)" หรือ "เป็นประสบการณ์ทำงานจริง (Work Experience)"
+- เกรด S: ทักษะที่ใช้ใน "การรับงานจริง (Freelance)" หรือ "มีผู้ใช้งานจริง (Production/Deploy)" หรือ "เป็นประสบการณ์ทำงานจริง (Work Experience)" เท่านั้น
 - เกรด A: ทักษะที่ได้ "เกรด A ในทรานสคริปต์" หรือ ใช้ใน "การทำโปรเจกต์จบ (Senior Project/Thesis)"
-- เกรด B: ทักษะที่ได้ "เกรด B ในทรานสคริปต์" หรือ ใช้ใน "การทำงานรายวิชาทั่วไป (Coursework Project)"
+- เกรด B: ทักษะที่ได้ "เกรด B ในทรานสคริปต์" หรือ ใช้ใน "การทำงานรายวิชาทั่วไป (Coursework Project) / การบ้านรายวิชา"
 - เกรด C: ทักษะที่ได้ "เกรด C ในทรานสคริปต์" หรือ "ในเรซูเม่เขียนระบุมาแค่ชื่อทักษะลอยๆ แต่ไม่ได้เขียนอธิบายเจาะลึกว่าเอาไปทำอะไร"
 - เกรด D: ทักษะที่ได้ "เกรด D ในทรานสคริปต์" หรือ "เพิ่งเริ่มเรียนรู้/กำลังศึกษาเบื้องต้น"
 
 วิธีตัดสิน:
-1. อ่านทีละประโยคแล้วจับ Evidence ของแต่ละทักษะ
-2. ถ้าประโยคเข้าได้หลายเกรด ให้เลือกเกรดสูงสุดตามลำดับ S > A > B > C > D
+1. อ่านทีละประโยคแล้วจับ Evidence ของแต่ละทักษะ แล้วใส่ประโยคนั้นใน field source
+2. ตัดสินเกรดจาก Evidence ของทักษะนั้นเป็นหลัก ห้ามยืมหลักฐานของทักษะอื่นมาอัปเกรด
 3. ห้ามให้ S ถ้าไม่มี Evidence เรื่อง Freelance / Production-Deploy / Work Experience
-4. ห้ามให้ A แทน S เมื่อมี Evidence ระดับ S
+4. ห้ามให้เกรด S กับ Senior Project / Thesis / โครงงานจบ / การบ้านรายวิชา แม้เทคโนโลยีจะซับซ้อนแค่ไหน
+5. ห้ามให้ A แทน S เมื่อมี Evidence ระดับ S จริง (Freelance / Production / Work Experience)
 
-ตัวอย่าง:
+ตัวอย่าง (Few-shot — ทำตามนี้เท่านั้น):
+- ตัวอย่าง 1: "พัฒนา Web Application ด้วย React เป็นโปรเจกต์จบ" -> {"name": "React", "grade": "A"}
+- ตัวอย่าง 2: "เรียนรู้ Dart เบื้องต้น" -> {"name": "Dart", "grade": "D"}
+- ตัวอย่าง 3: "รับจ้างทำระบบด้วย Node.js ให้ลูกค้า" -> {"name": "Node.js", "grade": "S"}
 - "รับจ้าง freelance และ Deploy ขึ้นระบบจริงให้ลูกค้า" -> grade S
 - "ใช้ React ใน Senior Project / โครงงานจบ" -> grade A
 - "ได้เกรด A ในทรานสคริปต์วิชา Database" -> grade A สำหรับทักษะนั้น
@@ -288,6 +203,14 @@ Skill Tagging (บังคับ):
 - React -> Frontend และ Web Development
 - Go -> Backend
 แท็กกลุ่มใช้เกรดเดียวกับทักษะหลักที่โยงมา`, strings.TrimSpace(experience))
+}
+
+func skillGradeEvidence(skill SkillItem, sharedEvidence string) string {
+	source := strings.TrimSpace(skill.Source)
+	if source != "" {
+		return source
+	}
+	return strings.TrimSpace(sharedEvidence)
 }
 
 func enforceCandidateSkillGrades(skills []SkillItem, evidenceTexts ...string) []SkillItem {
@@ -308,11 +231,16 @@ func enforceCandidateSkillGrades(skills []SkillItem, evidenceTexts ...string) []
 		if grade == "" {
 			grade = "C"
 		}
-		combined := strings.Join([]string{sharedEvidence, skill.Name, skill.Source, skill.Type}, " ")
-		if ev := evidenceGrade(combined); ev != "" {
-			grade = ev
-		} else if grade == "S" {
-			grade = "A"
+		if grade == "S" {
+			evidence := skillGradeEvidence(skill, sharedEvidence)
+			switch {
+			case looksSeniorProjectLevel(evidence):
+				grade = "A"
+			case looksCourseworkLevel(evidence):
+				grade = "B"
+			case !hasProductionOrFreelanceEvidence(evidence):
+				grade = "A"
+			}
 		}
 		skill.Grade = grade
 		if strings.TrimSpace(skill.Type) == "" {

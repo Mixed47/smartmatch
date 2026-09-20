@@ -236,7 +236,7 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
 
   const handleSaveLogbook = async () => {
     try {
-      await apiJson('/api/logbook', {
+      const saved = await apiJson('/api/logbook', {
         method: 'POST',
         body: JSON.stringify({
           date: new Date().toISOString().split('T')[0],
@@ -244,7 +244,8 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
           blocker: logBlocker,
         }),
       });
-      showToast('บันทึกสมุดสหกิจสำเร็จ!', 'success');
+      const critical = Boolean(saved?.evaluation?.is_critical || saved?.is_critical);
+      showToast(critical ? 'บันทึกสำเร็จ และ AI แจ้งปัญหาด่วนให้อาจารย์แล้ว' : 'บันทึกสมุดสหกิจสำเร็จ และ AI ประเมินผลแล้ว', 'success');
       setLogActivity(''); setLogBlocker('');
       apiJson('/api/logbook').then((data) => {
         const list = Array.isArray(data) ? data : (data?.data || []);

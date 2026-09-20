@@ -467,47 +467,59 @@ func extractSkillsGradedHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	r.ParseMultipartForm(10 << 20)
 	file, _, _ := r.FormFile("resume")
-	expText := r.FormValue("experience")
+	expText := strings.TrimSpace(r.FormValue("experience"))
 	var base64Data, imageURL, mimeType string
+	var fileBytes []byte
 	if file != nil {
 		defer file.Close()
-		fileBytes, _ := io.ReadAll(file)
+		fileBytes, _ = io.ReadAll(file)
 		mimeType = http.DetectContentType(fileBytes)
 		base64Data = base64.StdEncoding.EncodeToString(fileBytes)
+	}
+	if len(fileBytes) == 0 && expText == "" {
+		writeError(w, http.StatusBadRequest, "resume or experience is required")
+		return
+	}
+
+	promptText := candidateScoringPrompt(expText)
+	aiText, err := callGeminiAPI(promptText, base64Data, mimeType)
+	if err != nil {
+		log.Printf("extract-skills-graded gemini: %v", err)
+		if isTimeoutErr(err) {
+			writeError(w, http.StatusGatewayTimeout, "AI request timed out")
+			return
+		}
+		writeError(w, http.StatusBadGateway, "AI skill extraction failed")
+		return
+	}
+
+	skills, err := parseGradedSkillsResponse(aiText)
+	if err != nil {
+		log.Printf("extract-skills-graded parse: %v", err)
+		writeError(w, http.StatusBadGateway, "AI skill extraction failed")
+		return
+	}
+	skills = enforceCandidateSkillGrades(skills, expText)
+
+	if len(fileBytes) > 0 {
 		filename := fmt.Sprintf("%d_%d_resume.png", userID, time.Now().Unix())
-		out, err := os.Create("./uploads/" + filename)
-		if err == nil {
+		out, createErr := os.Create("./uploads/" + filename)
+		if createErr == nil {
 			_, _ = out.Write(fileBytes)
 			_ = out.Close()
 			imageURL = "/api/files/" + filename
 		}
 	}
-	promptText := candidateScoringPrompt(expText)
-	aiText, _ := callGeminiAPI(promptText, base64Data, mimeType)
-	cleanResponse := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(aiText, "```json", ""), "```", ""))
-	if extracted := extractJSONObject(cleanResponse); extracted != "" {
-		cleanResponse = extracted
-	}
-	var aiData map[string]interface{}
-	json.Unmarshal([]byte(cleanResponse), &aiData)
-	if aiData == nil {
-		aiData = make(map[string]interface{})
-	}
-	aiData["resume_url"] = imageURL
 
-	skills := []SkillItem{}
-	if raw, ok := aiData["skills"]; ok && raw != nil {
-		encoded, _ := json.Marshal(raw)
-		_ = json.Unmarshal(encoded, &skills)
-	}
-	skills = enforceCandidateSkillGrades(skills, expText)
-	aiData["skills"] = skills
 	if err := saveStudentSkills(userID, skills, imageURL); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save extracted skills")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, aiData)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"skills":     skills,
+		"resume_url": imageURL,
+	})
 }
 
 func extractJDHandler(w http.ResponseWriter, r *http.Request) {
@@ -543,7 +555,7 @@ func matchJobsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	matches := []JobMatchResponse{}
-	gradeValues := map[string]int{"A": 4, "B": 3, "C": 2, "D": 1}
+	gradeValues := map[string]int{"S": 5, "A": 4, "B": 3, "C": 2, "D": 1}
 	weightMultipliers := map[string]int{"CRITICAL": 3, "IMPORTANT": 2, "STANDARD": 1}
 	for rows.Next() {
 		var title, company, reqSkillsStr string
@@ -558,11 +570,11 @@ func matchJobsHandler(w http.ResponseWriter, r *http.Request) {
 			if weightVal == 0 {
 				weightVal = 1
 			}
-			maxPossibleScore += 4 * weightVal
+			maxPossibleScore += gradeValues["S"] * weightVal
 			found, studentVal := false, 0
 			for _, stdSkill := range req.Skills {
 				if strings.Contains(strings.ToLower(stdSkill.Name), strings.ToLower(reqSkill.Skill)) || strings.Contains(strings.ToLower(reqSkill.Skill), strings.ToLower(stdSkill.Name)) {
-					studentVal = gradeValues[strings.ToUpper(stdSkill.Grade)]
+					studentVal = gradeValues[normalizeLetterGrade(stdSkill.Grade)]
 					if studentVal == 0 {
 						studentVal = 2
 					}

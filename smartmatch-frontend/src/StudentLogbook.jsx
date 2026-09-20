@@ -261,6 +261,8 @@ export default function StudentLogbook() {
     const savedDate = date;
     const savedTasks = tasks.trim();
     const savedBlocker = blocker.trim();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
     try {
       const data = await apiJson('/api/logbook', {
         method: 'POST',
@@ -269,6 +271,7 @@ export default function StudentLogbook() {
           tasks: savedTasks,
           blocker: savedBlocker,
         }),
+        signal: controller.signal,
       });
 
       const created = toTimelineEntry(data, {
@@ -276,14 +279,22 @@ export default function StudentLogbook() {
         tasks: savedTasks,
         blocker: savedBlocker,
       });
+      const analysis = toAnalysis(data) || created.evaluation;
       setEntries((prev) => [created, ...prev.filter((entry) => entry.id !== created.id)]);
+      if (analysis) {
+        setAnalyses((prev) => ({ ...prev, [created.id]: analysis }));
+      }
       setSelectedHistoryDate(savedDate);
       const [savedYear, savedMonth] = savedDate.split('-').map(Number);
       if (savedYear && savedMonth) {
         setViewYear(savedYear);
         setViewMonth(savedMonth - 1);
       }
-      setSuccess('บันทึกเล่มสหกิจเรียบร้อยแล้ว');
+      setSuccess(
+        analysis?.is_critical
+          ? 'บันทึกสำเร็จ และ AI แจ้งว่าเป็นปัญหาด่วนให้อาจารย์แล้ว'
+          : 'บันทึกเล่มสหกิจสำเร็จ และ AI ประเมินผลรายวันเรียบร้อยแล้ว',
+      );
       setTasks('');
       setBlocker('');
       setDate(todayISO());
@@ -292,8 +303,16 @@ export default function StudentLogbook() {
       if (err?.status === 401) {
         return;
       }
-      setError(err?.data?.error ? authErrorMessage(err.status, err.data.error) : 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
+      const aborted = err?.name === 'AbortError';
+      setError(
+        aborted
+          ? aiErrorMessage(0, '', true)
+          : err?.status >= 500
+            ? aiErrorMessage(err.status, err?.data?.error, false)
+            : (err?.data?.error ? authErrorMessage(err.status, err.data.error) : 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้'),
+      );
     } finally {
+      clearTimeout(timer);
       setLoading(false);
     }
   };
@@ -480,7 +499,7 @@ export default function StudentLogbook() {
               disabled={loading}
               className="w-full rounded-2xl bg-[#4f46e5] py-3.5 text-sm font-bold text-white shadow-md shadow-indigo-500/20 transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? 'กำลังบันทึก...' : 'บันทึกเล่มสหกิจ'}
+              {loading ? 'กำลังบันทึกและให้ AI ประเมิน...' : 'บันทึกเล่มสหกิจ'}
             </button>
           </div>
         </form>

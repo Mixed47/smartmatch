@@ -1,11 +1,61 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
 	"unicode"
 )
+
+func letterGradeScore(grade string) int {
+	switch normalizeLetterGrade(grade) {
+	case "S":
+		return 5
+	case "A":
+		return 4
+	case "B":
+		return 3
+	case "C":
+		return 2
+	case "D":
+		return 1
+	default:
+		return 2
+	}
+}
+
+func parseGradedSkillsResponse(aiText string) ([]SkillItem, error) {
+	clean := strings.TrimSpace(aiText)
+	if clean == "" {
+		return nil, fmt.Errorf("empty AI response")
+	}
+	if extracted := extractJSONObject(clean); extracted != "" {
+		clean = extracted
+	}
+
+	var aiData map[string]interface{}
+	if err := json.Unmarshal([]byte(clean), &aiData); err != nil {
+		return nil, fmt.Errorf("invalid AI JSON: %w", err)
+	}
+	raw, ok := aiData["skills"]
+	if !ok || raw == nil {
+		return nil, fmt.Errorf("AI response missing skills")
+	}
+
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid skills payload")
+	}
+	var skills []SkillItem
+	if err := json.Unmarshal(encoded, &skills); err != nil {
+		return nil, fmt.Errorf("invalid skills payload: %w", err)
+	}
+	if len(skills) == 0 {
+		return nil, fmt.Errorf("AI did not extract any skills")
+	}
+	return skills, nil
+}
 
 var letterGradePattern = regexp.MustCompile(`\b([SABCD])\b`)
 

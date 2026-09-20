@@ -85,6 +85,11 @@ func CreateLogbookHandler(w http.ResponseWriter, r *http.Request) {
 		blocker = req.Blocker
 	}
 
+	if strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) == "" {
+		writeError(w, http.StatusServiceUnavailable, "GEMINI_API_KEY is not configured")
+		return
+	}
+
 	result, err := db.Exec(
 		"INSERT INTO logbook_entries (student_id, date, tasks, blocker) VALUES (?, ?, ?, ?)",
 		studentID, req.Date, req.Tasks, blocker,
@@ -100,13 +105,29 @@ func CreateLogbookHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	evaluation, evalErr := saveLogbookAIEvaluation(entryID, studentID, req.Tasks, req.Blocker)
+	if evalErr != nil {
+		log.Printf("logbook auto-evaluate id=%d: %v", entryID, evalErr)
+		_, _ = db.Exec("DELETE FROM logbook_entries WHERE id = ? AND student_id = ?", entryID, studentID)
+		if isTimeoutErr(evalErr) {
+			writeError(w, http.StatusGatewayTimeout, "AI request timed out")
+			return
+		}
+		writeError(w, http.StatusBadGateway, "AI evaluation failed")
+		return
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"message":    "logbook entry saved",
-		"id":         entryID,
-		"student_id": studentID,
-		"date":       req.Date,
-		"tasks":      req.Tasks,
-		"blocker":    req.Blocker,
+		"message":     "logbook entry saved",
+		"id":          entryID,
+		"student_id":  studentID,
+		"date":        req.Date,
+		"tasks":       req.Tasks,
+		"blocker":     req.Blocker,
+		"evaluation":  evaluation,
+		"feedback":    evaluation.Feedback,
+		"score":       evaluation.Score,
+		"is_critical": evaluation.IsCritical,
 	})
 }
 
@@ -228,20 +249,32 @@ func EvaluateLogbookHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) == "" {
-		writeError(w, http.StatusServiceUnavailable, "GEMINI_API_KEY is not configured")
-		return
-	}
-
-	evaluation, err := evaluateLogbookWithGemini(tasks, blocker.String)
+	evaluation, err := saveLogbookAIEvaluation(id, studentID, tasks, blocker.String)
 	if err != nil {
 		log.Printf("logbook evaluate id=%d: %v", id, err)
+		if strings.Contains(err.Error(), "GEMINI_API_KEY") {
+			writeError(w, http.StatusServiceUnavailable, "GEMINI_API_KEY is not configured")
+			return
+		}
 		if isTimeoutErr(err) {
 			writeError(w, http.StatusGatewayTimeout, "AI request timed out")
 			return
 		}
 		writeError(w, http.StatusBadGateway, "AI evaluation failed")
 		return
+	}
+
+	writeJSON(w, http.StatusOK, evaluation)
+}
+
+func saveLogbookAIEvaluation(entryID, studentID int64, tasks, blocker string) (LogbookAIEvaluation, error) {
+	if strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) == "" {
+		return LogbookAIEvaluation{}, errors.New("GEMINI_API_KEY is not configured")
+	}
+
+	evaluation, err := evaluateLogbookWithGemini(tasks, blocker)
+	if err != nil {
+		return LogbookAIEvaluation{}, err
 	}
 
 	criticalFlag := 0
@@ -252,14 +285,11 @@ func EvaluateLogbookHandler(w http.ResponseWriter, r *http.Request) {
 		`UPDATE logbook_entries
 		 SET ai_feedback = ?, ai_score = ?, ai_is_critical = ?, ai_evaluated_at = NOW()
 		 WHERE id = ? AND student_id = ?`,
-		evaluation.Feedback, evaluation.Score, criticalFlag, id, studentID,
+		evaluation.Feedback, evaluation.Score, criticalFlag, entryID, studentID,
 	); err != nil {
-		log.Printf("logbook evaluate save id=%d: %v", id, err)
-		writeError(w, http.StatusInternalServerError, "failed to save AI evaluation")
-		return
+		return LogbookAIEvaluation{}, err
 	}
-
-	writeJSON(w, http.StatusOK, evaluation)
+	return evaluation, nil
 }
 
 func evaluateLogbookWithGemini(tasks, blocker string) (LogbookAIEvaluation, error) {

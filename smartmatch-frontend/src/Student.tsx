@@ -426,10 +426,10 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   {skills.length === 0 && !loading && <div className="col-span-2 p-10 font-medium text-center text-zinc-400 dark:text-zinc-500">กรุณาอัปโหลดเรซูเม่เพื่อเริ่มต้น</div>}
                   {skills.map((s, i) => (
-                    <motion.div key={i} variants={itemVariants} whileHover={{ y: -4 }} className="flex flex-col justify-between p-5 bg-white dark:bg-[#161616] border border-white/40 dark:border-white/5 rounded-2xl shadow-[0_4px_20px_rgb(0,0,0,0.03)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
+                    <motion.div key={i} variants={itemVariants} whileHover={{ y: -4 }} className={`flex flex-col justify-between p-5 border rounded-2xl shadow-[0_4px_20px_rgb(0,0,0,0.03)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] ${String(s.grade).toUpperCase() === 'S' ? 'bg-gradient-to-br from-amber-50 via-white to-yellow-50 border-amber-300/80 dark:from-amber-500/15 dark:via-[#161616] dark:to-yellow-500/10 dark:border-amber-400/40' : 'bg-white dark:bg-[#161616] border-white/40 dark:border-white/5'}`}>
                       <div className="flex items-start justify-between mb-3">
                         <h4 className="font-bold tracking-tight text-zinc-800 dark:text-zinc-100">{s.name}</h4>
-                        <span className="px-2.5 py-1 text-[10px] font-black text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-md">เกรด {s.grade}</span>
+                        <span className={`px-2.5 py-1 text-[10px] font-black rounded-md ${String(s.grade).toUpperCase() === 'S' ? 'text-amber-950 bg-gradient-to-r from-amber-300 to-yellow-400 border border-amber-400 shadow-sm' : 'text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20'}`}>เกรด {s.grade}</span>
                       </div>
                       <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 tracking-wider mb-5 uppercase bg-indigo-50 dark:bg-indigo-500/10 self-start px-2.5 py-1 rounded-md">{s.type || 'Hard Skill'}</span>
                       <div className="pt-4 mt-auto border-t border-zinc-100 dark:border-white/5"><p className="text-[9px] font-semibold text-zinc-400 mb-1.5 uppercase tracking-widest">Source</p><p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{s.source || 'Resume Data'}</p></div>

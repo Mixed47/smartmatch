@@ -159,6 +159,7 @@ func initDB() {
 	ensureOwnershipColumns()
 	ensurePetitionsTable()
 	ensureMFAColumns()
+	ensureProfileTables()
 }
 
 func main() {
@@ -175,6 +176,11 @@ func main() {
 	r.HandleFunc("/api/register", RegisterHandler).Methods("POST")
 	r.HandleFunc("/api/login", LoginHandler).Methods("POST")
 	r.HandleFunc("/api/verify-mfa", VerifyMFAHandler).Methods("POST")
+	r.Handle("/api/me", authed(meHandler)).Methods("GET")
+	r.Handle("/api/student/profile", authed(getStudentProfileHandler, roleStudent)).Methods("GET")
+	r.Handle("/api/student/profile", authed(putStudentProfileHandler, roleStudent)).Methods("PUT")
+	r.Handle("/api/company/profile", authed(getCompanyProfileHandler, roleCompany)).Methods("GET")
+	r.Handle("/api/company/profile", authed(putCompanyProfileHandler, roleCompany)).Methods("PUT")
 
 	r.Handle("/api/extract-skills-graded", authed(extractSkillsGradedHandler, roleStudent)).Methods("POST")
 	r.Handle("/api/match-jobs", authed(matchJobsHandler, roleStudent)).Methods("POST")
@@ -482,6 +488,17 @@ func extractSkillsGradedHandler(w http.ResponseWriter, r *http.Request) {
 		aiData = make(map[string]interface{})
 	}
 	aiData["resume_url"] = imageURL
+
+	skills := []SkillItem{}
+	if raw, ok := aiData["skills"]; ok && raw != nil {
+		encoded, _ := json.Marshal(raw)
+		_ = json.Unmarshal(encoded, &skills)
+	}
+	if err := saveStudentSkills(userID, skills, imageURL); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save extracted skills")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, aiData)
 }
 
@@ -500,16 +517,24 @@ func extractJDHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func matchJobsHandler(w http.ResponseWriter, r *http.Request) {
-	if _, _, ok := currentUser(w, r); !ok {
+	userID, _, ok := currentUser(w, r)
+	if !ok {
 		return
 	}
 	var req struct {
 		Skills []SkillItem `json:"skills"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	matches := []JobMatchResponse{}
-	rows, _ := db.Query("SELECT title, company, required_skills FROM jobs ORDER BY id DESC")
+	if len(req.Skills) == 0 {
+		req.Skills = loadStudentSkills(userID)
+	}
+	rows, err := db.Query("SELECT title, company, required_skills FROM jobs ORDER BY id DESC")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load jobs")
+		return
+	}
 	defer rows.Close()
+	matches := []JobMatchResponse{}
 	gradeValues := map[string]int{"A": 4, "B": 3, "C": 2, "D": 1}
 	weightMultipliers := map[string]int{"CRITICAL": 3, "IMPORTANT": 2, "STANDARD": 1}
 	for rows.Next() {

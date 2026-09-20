@@ -15,17 +15,27 @@ const containerVariants: Variants = { hidden: { opacity: 0 }, show: { opacity: 1
 const itemVariants: Variants = { hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 100, damping: 15 } } };
 const formatThaiDate = (dateString: string) => { return new Date(dateString).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' }); };
 
+const emptyStudentProfile = {
+  firstName: '',
+  lastName: '',
+  nickname: '',
+  dob: '',
+  phone: '',
+  email: '',
+  university: '',
+  major: '',
+  address: '',
+  github: '',
+};
+
 export default function Student({ activeMenu, setActiveMenu, showToast }: { activeMenu: string, setActiveMenu: (m: string) => void, showToast: (msg: string, type: 'success'|'error'|'info') => void }) {
   const [avatar, setAvatar] = useState<string | null>(null);
-  const [profileData, setProfileData] = useState(() => {
-    const saved = localStorage.getItem('studentProfile_v2');
-    return saved ? JSON.parse(saved) : { firstName: 'ชวัลวิทย์', lastName: 'พรมตะพาน', nickname: 'มิค', dob: '2004-11-21', phone: '062-815-1745', email: 'chawanwit3310@gmail.com', university: 'มหาวิทยาลัยเทคโนโลยีราชมงคลสุวรรณภูมิ', major: 'Computer Science', address: 'นนทบุรี, ประเทศไทย', github: 'github.com/mick-dev' };
-  });
+  const [profileData, setProfileData] = useState(emptyStudentProfile);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [internship, setInternship] = useState<{ job_title: string; company: string; status: string } | null>(null);
 
-  const [skills, setSkills] = useState<Skill[]>(() => {
-    const savedSkills = localStorage.getItem('studentSkills_v2');
-    return savedSkills ? JSON.parse(savedSkills) : [];
-  });
+  const [skills, setSkills] = useState<Skill[]>([]);
 
   const [file, setFile] = useState<File | null>(null);
   const [expText, setExpText] = useState('');
@@ -53,6 +63,35 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
       .then((data) => { setMyApps(Array.isArray(data) ? data : []); setLoadError(''); })
       .catch((err) => { setLoadError(friendlyApiError(err, 'โหลดใบสมัครไม่สำเร็จ')); });
   };
+
+  const loadProfile = () => {
+    setProfileLoading(true);
+    apiJson('/api/student/profile')
+      .then((data) => {
+        setProfileData({
+          firstName: data.first_name || '',
+          lastName: data.last_name || '',
+          nickname: data.nickname || '',
+          dob: data.dob || '',
+          phone: data.phone || '',
+          email: data.email || '',
+          university: data.university || '',
+          major: data.major || '',
+          address: data.address || '',
+          github: data.github || '',
+        });
+        setSkills(Array.isArray(data.skills) ? data.skills : []);
+        setUploadedResumeUrl(data.resume_url || '');
+        setInternship(data.internship || null);
+        setLoadError('');
+      })
+      .catch((err) => {
+        setLoadError(friendlyApiError(err, 'โหลดโปรไฟล์ไม่สำเร็จ'));
+      })
+      .finally(() => setProfileLoading(false));
+  };
+
+  useEffect(() => { loadProfile(); }, []);
 
   useEffect(() => { fetchApplications(); }, [activeMenu, profileData.firstName]);
 
@@ -92,7 +131,32 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
   }, [activeChatId]);
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files && e.target.files[0]) setAvatar(URL.createObjectURL(e.target.files[0])); };
-  const handleSaveProfile = () => { localStorage.setItem('studentProfile_v2', JSON.stringify(profileData)); showToast('บันทึกการเปลี่ยนแปลงและอัปเดตโปรไฟล์เรียบร้อย!', 'success'); };
+  const handleSaveProfile = async () => {
+    setProfileSaving(true);
+    try {
+      const saved = await apiJson('/api/student/profile', {
+        method: 'PUT',
+        body: JSON.stringify({
+          first_name: profileData.firstName,
+          last_name: profileData.lastName,
+          nickname: profileData.nickname,
+          dob: profileData.dob,
+          phone: profileData.phone,
+          email: profileData.email,
+          university: profileData.university,
+          major: profileData.major,
+          address: profileData.address,
+          github: profileData.github,
+        }),
+      });
+      setInternship(saved.internship || internship);
+      showToast('บันทึกโปรไฟล์ลงระบบเรียบร้อยแล้ว', 'success');
+    } catch (err) {
+      showToast(friendlyApiError(err, 'บันทึกโปรไฟล์ไม่สำเร็จ'), 'error');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   const handleUpload = async () => {
     setLoading(true); setSkills([]);
@@ -107,7 +171,6 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
       }
       const newSkills = data.skills || [];
       setSkills(newSkills);
-      localStorage.setItem('studentSkills_v2', JSON.stringify(newSkills));
       setUploadedResumeUrl(data.resume_url || '');
       showToast('AI วิเคราะห์ทักษะสำเร็จ!', 'info');
 
@@ -267,7 +330,7 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
         {activeMenu === 'student-home' && (
           <motion.div key="student-home" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="w-full max-w-5xl mx-auto">
             <motion.div variants={itemVariants} className="mb-10">
-              <h2 className="text-3xl font-extrabold tracking-tighter text-zinc-900 dark:text-zinc-100">สวัสดี, {profileData.nickname} 👋</h2>
+              <h2 className="text-3xl font-extrabold tracking-tighter text-zinc-900 dark:text-zinc-100">สวัสดี, {profileData.nickname || profileData.firstName || 'นักศึกษา'} 👋</h2>
               <p className="mt-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">ภาพรวมการหาสถานที่ฝึกงานและบันทึกสหกิจศึกษาของคุณ</p>
             </motion.div>
 
@@ -300,6 +363,16 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
         {activeMenu === '0' && (
           <motion.div key="menu0" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="w-full max-w-4xl mx-auto">
             <motion.h2 variants={itemVariants} className="mb-8 text-3xl font-extrabold tracking-tighter text-zinc-900 dark:text-zinc-100">My Profile</motion.h2>
+            {profileLoading && (
+              <p className="mb-4 text-sm font-medium text-zinc-500">กำลังโหลดโปรไฟล์จากเซิร์ฟเวอร์...</p>
+            )}
+            {internship && (
+              <motion.div variants={itemVariants} className="p-5 mb-6 border rounded-2xl bg-emerald-50/80 dark:bg-emerald-500/10 border-emerald-200/60 dark:border-emerald-500/20">
+                <p className="m-0 text-xs font-bold tracking-wide uppercase text-emerald-700 dark:text-emerald-400">สถานะการฝึกงาน</p>
+                <p className="m-0 mt-2 text-sm font-semibold text-zinc-800 dark:text-zinc-100">{internship.job_title} @ {internship.company}</p>
+                <p className="m-0 mt-1 text-xs text-zinc-500">{internship.status}</p>
+              </motion.div>
+            )}
             <motion.div variants={itemVariants} className="p-8 mb-8 bg-white/70 dark:bg-[#161616] backdrop-blur-xl border shadow-sm rounded-[2rem] border-zinc-200/50 dark:border-white/5">
               <div className="flex flex-col items-center gap-6 mb-10 sm:flex-row">
                 <div className="relative flex items-center justify-center overflow-hidden border-4 border-white rounded-full shadow-xl cursor-pointer w-28 h-28 bg-zinc-100 dark:bg-zinc-800 dark:border-zinc-700 group">
@@ -321,7 +394,7 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
                 <div className="md:col-span-2"><label className="block mb-2 text-xs font-semibold tracking-wide uppercase text-zinc-500 dark:text-zinc-400">อีเมล</label><input type="email" value={profileData.email} onChange={e => setProfileData({...profileData, email: e.target.value})} className="w-full p-4 text-sm transition-all bg-[#1a1a1a] border border-white/10 outline-none rounded-2xl focus:border-blue-500 focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400 scheme-dark" /></div>
               </div>
               <div className="pt-8 mt-8 border-t border-zinc-100 dark:border-white/5">
-                <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} onClick={handleSaveProfile} className="w-full py-4 text-sm font-semibold tracking-tight text-white transition-colors shadow-lg bg-zinc-900 dark:bg-white dark:text-black rounded-2xl hover:bg-zinc-800">บันทึกการเปลี่ยนแปลง</motion.button>
+                <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} onClick={handleSaveProfile} disabled={profileSaving || profileLoading} className="w-full py-4 text-sm font-semibold tracking-tight text-white transition-colors shadow-lg bg-zinc-900 dark:bg-white dark:text-black rounded-2xl hover:bg-zinc-800 disabled:opacity-50">{profileSaving ? 'กำลังบันทึก...' : 'บันทึกการเปลี่ยนแปลง'}</motion.button>
               </div>
             </motion.div>
           </motion.div>

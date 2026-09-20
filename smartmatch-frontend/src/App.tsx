@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Student from './Student';
 import Company from './Company';
 import Teacher from './Teacher';
-import { clearAuthSession } from './apiClient';
+import { apiJson, clearAuthSession } from './apiClient';
 
 export type ToastType = { msg: string; type: 'success' | 'error' | 'info' } | null;
 
@@ -24,6 +24,7 @@ function Dashboard({ initialRole }: { initialRole: 'student' | 'company' | 'teac
   const [isDark, setIsDark] = useState(false);
   const [toast, setToast] = useState<ToastType>(null);
   const [showNotif, setShowNotif] = useState(false);
+  const [studentHeader, setStudentHeader] = useState({ name: 'นักศึกษา', major: '' });
 
   const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
 
@@ -40,6 +41,20 @@ function Dashboard({ initialRole }: { initialRole: 'student' | 'company' | 'teac
     if (mappedRole === 'teacher') setActiveMenu('teacher-home');
   }, [mappedRole]);
 
+  useEffect(() => {
+    if (role !== 'student') return;
+    apiJson('/api/student/profile')
+      .then((data) => {
+        const display = data.nickname
+          ? `${data.first_name || 'นักศึกษา'} (${data.nickname})`
+          : (data.first_name || 'นักศึกษา');
+        setStudentHeader({ name: display, major: data.major || '' });
+      })
+      .catch(() => {
+        setStudentHeader({ name: 'นักศึกษา', major: '' });
+      });
+  }, [role, activeMenu]);
+
   const toggleTheme = () => {
     if (isDark) { document.documentElement.classList.remove('dark'); localStorage.setItem('theme', 'light'); setIsDark(false); } 
     else { document.documentElement.classList.add('dark'); localStorage.setItem('theme', 'dark'); setIsDark(true); }
@@ -50,10 +65,7 @@ function Dashboard({ initialRole }: { initialRole: 'student' | 'company' | 'teac
     navigate('/login');
   };
 
-  const getStudentName = () => {
-    const saved = localStorage.getItem('studentProfile_v2');
-    return saved ? `${JSON.parse(saved).firstName} (${JSON.parse(saved).nickname})` : 'ชวัลวิทย์ (มิค)';
-  };
+  const getStudentName = () => studentHeader.name;
 
   return (
     <div className="flex min-h-screen bg-[#f8fafc] dark:bg-[#09090b] transition-colors duration-500 font-sans relative">
@@ -140,7 +152,7 @@ function Dashboard({ initialRole }: { initialRole: 'student' | 'company' | 'teac
                   <img src={`https://ui-avatars.com/api/?name=${getStudentName()}&background=4f46e5&color=fff`} alt="Avatar" className="border rounded-full shadow-sm w-9 h-9 border-slate-100 dark:border-zinc-800" />
                   <div className="hidden text-right sm:block">
                     <p className="m-0 text-xs font-bold text-slate-800 dark:text-zinc-100">{getStudentName()}</p>
-                    <p className="text-[9px] font-bold text-[#4f46e5] dark:text-indigo-400 m-0 uppercase tracking-wider">Computer Science</p>
+                    <p className="text-[9px] font-bold text-[#4f46e5] dark:text-indigo-400 m-0 uppercase tracking-wider">{studentHeader.major || 'Student'}</p>
                   </div>
                 </motion.button>
               )}

@@ -19,10 +19,8 @@ const itemVariants: Variants = { hidden: { opacity: 0, y: 15 }, show: { opacity:
 
 export default function Company({ activeMenu, setActiveMenu, showToast }: { activeMenu: string, setActiveMenu: (m: string) => void, showToast: (msg: string, type: 'success' | 'error' | 'info') => void }) {
   const [logo, setLogo] = useState<string | null>(null);
-  const [profileData, setProfileData] = useState(() => {
-    const saved = localStorage.getItem('companyProfile');
-    return saved ? JSON.parse(saved) : { companyName: 'InternSmartMatch Co., Ltd.', industry: 'Technology / Software', location: 'กรุงเทพมหานคร, ประเทศไทย', website: 'https://ai-internmatch.com', culture: 'เราเป็น Tech Startup ที่เน้นการทำงานแบบ Agile เปิดรับไอเดียใหม่ๆ และให้ความสำคัญกับการเติบโตของพนักงาน' };
-  });
+  const [profileData, setProfileData] = useState({ companyName: '', industry: '', location: '', website: '', culture: '' });
+  const [profileLoading, setProfileLoading] = useState(true);
 
   const [jd, setJd] = useState("We are looking for a Junior React Developer...\nRequirements:\n- React.js\n- Node.js\n- RESTful APIs");
   const [newJob, setNewJob] = useState({ title: '' }); 
@@ -54,6 +52,23 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
   useEffect(() => { fetchMyJobs(); }, [activeMenu, profileData.companyName]);
 
   useEffect(() => {
+    setProfileLoading(true);
+    apiJson('/api/company/profile')
+      .then((data) => {
+        setProfileData({
+          companyName: data.company_name || '',
+          industry: data.industry || '',
+          location: data.location || '',
+          website: data.website || '',
+          culture: data.culture || '',
+        });
+        setLoadError('');
+      })
+      .catch((err) => setLoadError(friendlyApiError(err, 'โหลดโปรไฟล์บริษัทไม่สำเร็จ')))
+      .finally(() => setProfileLoading(false));
+  }, []);
+
+  useEffect(() => {
     const fetchApps = () => { apiJson('/api/applications').then((data) => { if (Array.isArray(data)) { setApplicants([...data].sort((a: any, b: any) => b.match_percentage - a.match_percentage)); setLoadError(''); } }).catch((err) => { setLoadError(friendlyApiError(err, 'โหลดผู้สมัครไม่สำเร็จ')); }); };
     if (activeMenu === '5' || activeMenu === 'hr-home') fetchApps();
     const interval = setInterval(() => { if (activeMenu === '5' || activeMenu === 'hr-home') fetchApps(); }, 3000);
@@ -73,7 +88,24 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
   }, [activeChatId]);
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files && e.target.files[0]) setLogo(URL.createObjectURL(e.target.files[0])); };
-  const handleSaveProfile = () => { localStorage.setItem('companyProfile', JSON.stringify(profileData)); showToast('อัปเดตข้อมูลบริษัทเรียบร้อยแล้ว!', 'success'); fetchMyJobs(); };
+  const handleSaveProfile = async () => {
+    try {
+      await apiJson('/api/company/profile', {
+        method: 'PUT',
+        body: JSON.stringify({
+          company_name: profileData.companyName,
+          industry: profileData.industry,
+          location: profileData.location,
+          website: profileData.website,
+          culture: profileData.culture,
+        }),
+      });
+      showToast('อัปเดตข้อมูลบริษัทเรียบร้อยแล้ว!', 'success');
+      fetchMyJobs();
+    } catch (err) {
+      showToast(friendlyApiError(err, 'บันทึกโปรไฟล์บริษัทไม่สำเร็จ'), 'error');
+    }
+  };
 
   const handleAnalyzeJD = async () => {
     if (!jd.trim()) return;
@@ -202,7 +234,7 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
                   <input type="file" onChange={handleLogoUpload} className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" />
                 </div>
                 <div className="text-center sm:text-left">
-                  <h3 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">{profileData.companyName}</h3>
+                  <h3 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">{profileLoading ? 'กำลังโหลด...' : (profileData.companyName || 'ยังไม่ได้ตั้งชื่อบริษัท')}</h3>
                   <p className="mt-1 text-sm font-medium text-indigo-600 dark:text-indigo-400">{profileData.industry}</p>
                 </div>
               </div>

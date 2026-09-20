@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { apiJson, clearAuthSession } from './apiClient';
+import { apiJson, clearAuthSession, getAuthUser } from './apiClient';
 
 const AI_TIMEOUT_MS = 70000;
 
@@ -147,7 +147,7 @@ export default function StudentLogbook() {
   const [selectedHistoryDate, setSelectedHistoryDate] = useState(null);
 
   const hasBlocker = String(blocker || '').trim().length > 0;
-  const email = useMemo(() => localStorage.getItem('email') || '', []);
+  const [email, setEmail] = useState('');
   const today = todayISO();
   const calendarCells = useMemo(
     () => buildCalendarCells(viewYear, viewMonth),
@@ -221,17 +221,17 @@ export default function StudentLogbook() {
   loadEntriesRef.current = loadEntries;
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const role = localStorage.getItem('role');
-    if (!token) {
+    const user = getAuthUser();
+    if (!user) {
       navigate('/login', { replace: true });
       return undefined;
     }
-    if (role !== 'student') {
+    if (user.role !== 'student') {
       navigate('/', { replace: true });
       return undefined;
     }
     void loadEntriesRef.current(false);
+    apiJson('/api/me').then((data) => setEmail(data.email || '')).catch(() => setEmail(''));
     return undefined;
   }, [navigate]);
 

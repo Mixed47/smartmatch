@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+import { apiPublicJson, persistAuthToken, friendlyApiError } from './apiClient';
 
 const roleHome = {
   student: '/student',
@@ -22,28 +21,17 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE}/api/login`, {
+      const data = await apiPublicJson('/api/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        setError(data.error || 'อีเมลหรือรหัสผ่านไม่ถูกต้อง');
-        return;
-      }
 
       if (!data.token) {
         setError('ไม่พบ Token จากเซิร์ฟเวอร์');
         return;
       }
 
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('role', data.role);
-      if (data.user_id != null) localStorage.setItem('user_id', String(data.user_id));
-      if (data.email) localStorage.setItem('email', data.email);
-
+      persistAuthToken(data.token);
       const path = roleHome[data.role];
       if (!path) {
         setError('บทบาทผู้ใช้ไม่รองรับ');
@@ -51,8 +39,8 @@ export default function Login() {
       }
 
       navigate(path);
-    } catch {
-      setError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
+    } catch (err) {
+      setError(friendlyApiError(err, 'อีเมลหรือรหัสผ่านไม่ถูกต้อง'));
     } finally {
       setLoading(false);
     }
@@ -64,7 +52,7 @@ export default function Login() {
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#4f46e5] text-white shadow-lg shadow-indigo-500/30">
             <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-6 w-6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551.2-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" />
             </svg>
           </div>
           <h1 className="m-0 text-2xl font-black text-slate-900 dark:text-white">เข้าสู่ระบบ</h1>

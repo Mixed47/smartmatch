@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { Skill, JobMatch, Application } from './types';
-import { apiFetch, apiJson } from './apiClient';
+import { apiFetch, apiJson, friendlyApiError } from './apiClient';
 
 interface Message { id: number; application_id: string; sender: string; text: string; created_at: string; }
 interface LogEntry { date: string; category: string; activity: string; blocker: string; }
@@ -46,11 +46,12 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
 
   const [cancelModal, setCancelModal] = useState({ show: false, appId: '', companyName: '' });
   const [cancelReason, setCancelReason] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   const fetchApplications = () => {
     apiJson('/api/my-applications')
-      .then((data) => { setMyApps(Array.isArray(data) ? data : []); })
-      .catch(() => {});
+      .then((data) => { setMyApps(Array.isArray(data) ? data : []); setLoadError(''); })
+      .catch((err) => { setLoadError(friendlyApiError(err, 'โหลดใบสมัครไม่สำเร็จ')); });
   };
 
   useEffect(() => { fetchApplications(); }, [activeMenu, profileData.firstName]);
@@ -66,7 +67,7 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
           const freshJobs = matchData.filter((job: JobMatch) => !appliedTitles.includes(job.job_title));
           setMatchedJobs(freshJobs.sort((a, b) => b.match_percentage - a.match_percentage));
         }
-      }).catch(() => {});
+      }).catch((err) => { setLoadError(friendlyApiError(err, 'ค้นหางานที่เหมาะกับคุณไม่สำเร็จ')); });
     }
   }, [activeMenu, skills, myApps]);
 
@@ -80,13 +81,13 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
           activity: l.activity || l.tasks || '',
           blocker: l.blocker,
         })));
-      }).catch(() => {});
+      }).catch((err) => { setLoadError(friendlyApiError(err, 'โหลดสมุดสหกิจไม่สำเร็จ')); });
     }
   }, [activeMenu]);
 
   useEffect(() => {
     if (!activeChatId) return;
-    const fetchChat = () => apiJson(`/api/chat/messages?application_id=${encodeURIComponent(activeChatId)}`).then((data) => setChatMessages(data || [])).catch(() => {});
+    const fetchChat = () => apiJson(`/api/chat/messages?application_id=${encodeURIComponent(activeChatId)}`).then((data) => setChatMessages(data || [])).catch((err) => { setLoadError(friendlyApiError(err, 'โหลดข้อความแชทไม่สำเร็จ')); });
     fetchChat(); const interval = setInterval(fetchChat, 2000); return () => clearInterval(interval);
   }, [activeChatId]);
 
@@ -100,7 +101,10 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
     formData.append('experience', expText);
     try {
       const res = await apiFetch('/api/extract-skills-graded', { method: 'POST', body: formData });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw Object.assign(new Error(data.error || 'วิเคราะห์ทักษะไม่สำเร็จ'), { status: res.status, data });
+      }
       const newSkills = data.skills || [];
       setSkills(newSkills);
       localStorage.setItem('studentSkills_v2', JSON.stringify(newSkills));
@@ -117,7 +121,7 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
         setMatchedJobs(freshJobs.sort((a: JobMatch, b: JobMatch) => b.match_percentage - a.match_percentage));
       }
       showToast('AI ค้นหางานที่เหมาะสมเสร็จสมบูรณ์!', 'success');
-    } catch (e) { console.error(e); showToast('มีปัญหาตอนโหลดรายชื่องาน', 'error'); } finally { setLoading(false); }
+    } catch (e) { console.error(e); showToast(friendlyApiError(e, 'มีปัญหาตอนโหลดรายชื่องาน'), 'error'); } finally { setLoading(false); }
   };
 
   const handleSwipe = (type: 'apply' | 'pass', job: JobMatch) => {
@@ -129,15 +133,19 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
       }).then(() => {
         showToast(`ส่งใบสมัครไปยัง ${job.company} แล้ว!`, 'success');
         fetchApplications();
-      }).catch(() => {});
+      }).catch((err) => { showToast(friendlyApiError(err, 'ส่งใบสมัครไม่สำเร็จ'), 'error'); });
     }
     setTimeout(() => { setMatchedJobs(prev => prev.slice(1)); setSwipeDirection(null); }, 300);
   };
 
   const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault(); if (!typedMessage.trim() || !activeChatId) return;
-    await apiJson('/api/chat/send', { method: 'POST', body: JSON.stringify({ application_id: activeChatId, text: typedMessage.trim() }) });
-    setTypedMessage('');
+    try {
+      await apiJson('/api/chat/send', { method: 'POST', body: JSON.stringify({ application_id: activeChatId, text: typedMessage.trim() }) });
+      setTypedMessage('');
+    } catch (err) {
+      showToast(friendlyApiError(err, 'ส่งข้อความไม่สำเร็จ'), 'error');
+    }
   };
 
   const submitCancelRequest = () => {
@@ -149,7 +157,7 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
       showToast('ส่งคำร้องให้อาจารย์สำเร็จ กรุณารอการอนุมัติ', 'success');
       setCancelModal({ show: false, appId: '', companyName: '' });
       setCancelReason('');
-    }).catch(() => showToast('ส่งคำร้องไม่สำเร็จ', 'error'));
+    }).catch((err) => showToast(friendlyApiError(err, 'ส่งคำร้องไม่สำเร็จ'), 'error'));
   };
 
   const generateAI = async (type: 'email' | 'interview', app: Application) => {
@@ -160,7 +168,7 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
         const data = await apiJson(`/api/${endpoint}`, { method: 'POST', body: JSON.stringify(body) });
         setAiContent({ ...aiContent, [app.id]: { type, data: type === 'email' ? data.email : data.questions } });
         showToast('ประมวลผลเสร็จสมบูรณ์!', 'success');
-      } catch (e) { showToast('การประมวลผลล้มเหลว', 'error'); } finally { setAiLoading(false); }
+      } catch (e) { showToast(friendlyApiError(e, 'การประมวลผลล้มเหลว'), 'error'); } finally { setAiLoading(false); }
     };
 
   const handleSaveLogbook = async () => {
@@ -184,7 +192,7 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
           blocker: l.blocker,
         })));
       }).catch(() => {});
-    } catch (e) { showToast('เกิดข้อผิดพลาดในการบันทึก', 'error'); }
+    } catch (e) { showToast(friendlyApiError(e, 'เกิดข้อผิดพลาดในการบันทึก'), 'error'); }
   };
 
   const generateHeatmap = () => {
@@ -202,7 +210,11 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
 
   return (
     <div className="relative w-full min-h-screen pb-20 transition-colors duration-500 text-zinc-900 dark:text-zinc-100">
-      
+      {loadError && (
+        <div className="max-w-5xl mx-auto mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-300">
+          {loadError}
+        </div>
+      )}
       <AnimatePresence>
         {cancelModal.show && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">

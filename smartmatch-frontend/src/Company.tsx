@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { ParsedSkill, Application } from './types';
-import { apiJson, fileURL } from './apiClient';
+import { apiJson, fileURL, friendlyApiError } from './apiClient';
 
 interface Message { id: number; application_id: string; sender: string; text: string; created_at: string; }
 
@@ -39,6 +39,7 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
   const [evalModal, setEvalModal] = useState({ show: false, appId: '', studentName: '' });
   const [evalScore, setEvalScore] = useState('');
   const [evalComment, setEvalComment] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   const fetchMyJobs = () => {
     apiJson('/api/jobs')
@@ -47,20 +48,20 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
           setMyPostedJobs([...data.data].reverse());
         }
       })
-      .catch(() => {});
+      .catch((err) => { setLoadError(friendlyApiError(err, 'โหลดประกาศงานไม่สำเร็จ')); });
   };
 
   useEffect(() => { fetchMyJobs(); }, [activeMenu, profileData.companyName]);
 
   useEffect(() => {
-    const fetchApps = () => { apiJson('/api/applications').then((data) => { if (Array.isArray(data)) setApplicants([...data].sort((a: any, b: any) => b.match_percentage - a.match_percentage)); }).catch(() => {}); };
+    const fetchApps = () => { apiJson('/api/applications').then((data) => { if (Array.isArray(data)) { setApplicants([...data].sort((a: any, b: any) => b.match_percentage - a.match_percentage)); setLoadError(''); } }).catch((err) => { setLoadError(friendlyApiError(err, 'โหลดผู้สมัครไม่สำเร็จ')); }); };
     if (activeMenu === '5' || activeMenu === 'hr-home') fetchApps();
     const interval = setInterval(() => { if (activeMenu === '5' || activeMenu === 'hr-home') fetchApps(); }, 3000);
     return () => clearInterval(interval);
   }, [activeMenu]);
 
   useEffect(() => {
-    const fetchMatches = () => { apiJson('/api/hr-matches').then((data) => setMatchedList(data || [])).catch(() => {}); };
+    const fetchMatches = () => { apiJson('/api/hr-matches').then((data) => { setMatchedList(data || []); setLoadError(''); }).catch((err) => { setLoadError(friendlyApiError(err, 'โหลดรายการ Match ไม่สำเร็จ')); }); };
     if (activeMenu === '6' || activeMenu === 'hr-home') fetchMatches();
     const interval = setInterval(fetchMatches, 3000); return () => clearInterval(interval);
   }, [activeMenu]);
@@ -80,7 +81,7 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
     try {
       const data = await apiJson('/api/extract-jd', { method: 'POST', body: JSON.stringify({ text: jd }) });
       if (data.skills) { setExtractedSkills(data.skills.map((s: any) => ({ skill: s.skill, weight: (s.weight || 'STANDARD').toUpperCase() }))); showToast('สกัดทักษะจาก JD เสร็จสมบูรณ์', 'success'); }
-    } catch (e) { showToast('เกิดข้อผิดพลาดในการวิเคราะห์ AI', 'error'); } finally { setIsAnalyzing(false); }
+    } catch (e) { showToast(friendlyApiError(e, 'เกิดข้อผิดพลาดในการวิเคราะห์ AI'), 'error'); } finally { setIsAnalyzing(false); }
   };
 
   const handleWeightChange = (index: number, weight: 'STANDARD' | 'IMPORTANT' | 'CRITICAL') => { const updated = [...extractedSkills]; updated[index].weight = weight; setExtractedSkills(updated); };
@@ -97,19 +98,23 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
       const newJobData = { title: newJob.title, company: profileData.companyName, skills: extractedSkills };
       setMyPostedJobs([newJobData, ...myPostedJobs]);
       setNewJob({ title: '' }); setExtractedSkills([]);
-    } catch (error) { showToast('ระบบมีปัญหา ไม่สามารถประกาศงานได้', 'error'); }
+    } catch (error) { showToast(friendlyApiError(error, 'ระบบมีปัญหา ไม่สามารถประกาศงานได้'), 'error'); }
   };
 
   const handleAction = (type: 'like' | 'pass', applicantId: string) => {
     setSwipeDirection(type === 'like' ? 'right' : 'left');
-    apiJson('/api/update-status', { method: 'POST', body: JSON.stringify({ id: applicantId, status: type === 'like' ? 'Matched' : 'Rejected' }) }).then(() => { if (type === 'like') showToast('Match สำเร็จ!', 'success'); }).catch(() => {});
+    apiJson('/api/update-status', { method: 'POST', body: JSON.stringify({ id: applicantId, status: type === 'like' ? 'Matched' : 'Rejected' }) }).then(() => { if (type === 'like') showToast('Match สำเร็จ!', 'success'); }).catch((err) => { showToast(friendlyApiError(err, 'อัปเดตสถานะไม่สำเร็จ'), 'error'); });
     setTimeout(() => { setApplicants(prev => prev.slice(1)); setSwipeDirection(null); }, 300);
   };
 
   const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault(); if (!typedMessage.trim() || !activeChatId) return;
-    await apiJson('/api/chat/send', { method: 'POST', body: JSON.stringify({ application_id: activeChatId, text: typedMessage.trim() }) });
-    setTypedMessage('');
+    try {
+      await apiJson('/api/chat/send', { method: 'POST', body: JSON.stringify({ application_id: activeChatId, text: typedMessage.trim() }) });
+      setTypedMessage('');
+    } catch (err) {
+      showToast(friendlyApiError(err, 'ส่งข้อความไม่สำเร็จ'), 'error');
+    }
   };
 
   const submitEvaluation = () => {
@@ -119,12 +124,16 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
       showToast('บันทึกการประเมินสำเร็จ สถานะเปลี่ยนเป็น Completed', 'success');
       setEvalModal({ show: false, appId: '', studentName: '' }); setEvalScore(''); setEvalComment('');
       apiJson('/api/hr-matches').then((data) => setMatchedList(data || [])).catch(() => {});
-    }).catch(() => showToast('บันทึกการประเมินไม่สำเร็จ', 'error'));
+    }).catch((err) => showToast(friendlyApiError(err, 'บันทึกการประเมินไม่สำเร็จ'), 'error'));
   };
 
   return (
     <div className="relative w-full pb-20 transition-colors duration-500 text-zinc-900 dark:text-zinc-100">
-      
+      {loadError && (
+        <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-300">
+          {loadError}
+        </div>
+      )}
       <AnimatePresence>
         {evalModal.show && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">

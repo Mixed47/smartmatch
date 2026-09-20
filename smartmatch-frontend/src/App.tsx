@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Student from './Student';
 import Company from './Company';
 import Teacher from './Teacher';
+import { clearAuthSession } from './apiClient';
 
 export type ToastType = { msg: string; type: 'success' | 'error' | 'info' } | null;
 
@@ -45,9 +46,7 @@ function Dashboard({ initialRole }: { initialRole: 'student' | 'company' | 'teac
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('role');
-    localStorage.removeItem('user_id');
+    clearAuthSession();
     navigate('/login');
   };
 

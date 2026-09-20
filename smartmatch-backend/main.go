@@ -157,6 +157,7 @@ func initDB() {
 	)`)
 	ensureLogbookAIColumns()
 	ensureOwnershipColumns()
+	ensurePetitionsTable()
 }
 
 func main() {
@@ -175,10 +176,10 @@ func main() {
 
 	r.Handle("/api/extract-skills-graded", authed(extractSkillsGradedHandler, roleStudent)).Methods("POST")
 	r.Handle("/api/match-jobs", authed(matchJobsHandler, roleStudent)).Methods("POST")
-	r.Handle("/api/logbook", jwtAuthMiddleware(http.HandlerFunc(CreateLogbookHandler))).Methods("POST")
-	r.Handle("/api/logbook", jwtAuthMiddleware(http.HandlerFunc(ListMyLogbookHandler))).Methods("GET")
-	r.Handle("/api/logbook/entries", jwtAuthMiddleware(http.HandlerFunc(ListMyLogbookHandler))).Methods("GET")
-	r.Handle("/api/logbook/{id}/evaluate", jwtAuthMiddleware(http.HandlerFunc(EvaluateLogbookHandler))).Methods("POST")
+	r.Handle("/api/logbook", authed(CreateLogbookHandler, roleStudent)).Methods("POST")
+	r.Handle("/api/logbook", authed(ListMyLogbookHandler, roleStudent, roleTeacher)).Methods("GET")
+	r.Handle("/api/logbook/entries", authed(ListMyLogbookHandler, roleStudent, roleTeacher)).Methods("GET")
+	r.Handle("/api/logbook/{id}/evaluate", authed(EvaluateLogbookHandler, roleStudent)).Methods("POST")
 	r.Handle("/api/applications", authed(getApplicationsHandler, roleCompany)).Methods("GET")
 	r.Handle("/api/update-status", authed(updateStatusHandler, roleCompany)).Methods("POST")
 	r.Handle("/api/jobs", authed(postJobHandler, roleCompany)).Methods("POST", "GET")
@@ -193,6 +194,8 @@ func main() {
 	r.Handle("/api/request-cancel", authed(requestCancelHandler, roleStudent)).Methods("POST")
 	r.Handle("/api/cancel-requests", authed(getCancelRequestsHandler, roleTeacher)).Methods("GET")
 	r.Handle("/api/resolve-cancel", authed(resolveCancelHandler, roleTeacher)).Methods("POST")
+	r.Handle("/api/petitions", authed(createPetitionHandler, roleStudent)).Methods("POST")
+	r.Handle("/api/petitions", authed(listPetitionsHandler, roleStudent, roleTeacher)).Methods("GET")
 	r.Handle("/api/evaluate", authed(evaluateStudentHandler, roleCompany)).Methods("POST")
 	r.Handle("/api/evaluations", authed(getEvaluationsHandler, roleTeacher, roleCompany)).Methods("GET")
 	r.Handle("/api/files/{filename}", jwtQueryTokenMiddleware(authed(serveProtectedUpload))).Methods("GET")
@@ -229,6 +232,16 @@ func requestCancelHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to save cancel request")
 		return
 	}
+	payload, _ := json.Marshal(map[string]string{
+		"application_id": req.AppID,
+		"student_name":   req.StudentName,
+		"company_name":   req.CompanyName,
+		"reason":         req.Reason,
+	})
+	_, _ = db.Exec(
+		"INSERT INTO petitions (user_id, type, payload, status) VALUES (?, 'cancel', ?, 'Pending')",
+		userID, payload,
+	)
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 

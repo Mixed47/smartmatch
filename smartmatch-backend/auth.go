@@ -65,6 +65,14 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, errorResponse{Error: message})
 }
 
+func requireDB(w http.ResponseWriter) bool {
+	if db == nil {
+		writeError(w, http.StatusServiceUnavailable, "database is not available")
+		return false
+	}
+	return true
+}
+
 func jwtSecret() ([]byte, error) {
 	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
 	if secret == "" {

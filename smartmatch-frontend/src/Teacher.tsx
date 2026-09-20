@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { CancelRequest, Evaluation } from './types';
-import { apiJson } from './apiClient';
+import { apiJson, friendlyApiError } from './apiClient';
 
 interface Application { id: string; name: string; job_title: string; company: string; status: string; }
 interface Message { id: number; application_id: string; sender: string; text: string; created_at: string; }
@@ -25,14 +25,17 @@ export default function Teacher({ showToast }: { activeMenu?: string; setActiveM
   const [typedMessage, setTypedMessage] = useState('');
   const [logs, setLogs] = useState<Logbook[]>([]);
   const [activeLogCardId, setActiveLogCardId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState('');
 
   const notify = (msg: string, type: 'success' | 'error' | 'info' = 'success') => { if (showToast) showToast(msg, type); };
 
   const loadData = () => {
-    apiJson('/api/my-applications').then((data) => setApplications(data || [])).catch(() => {});
-    apiJson('/api/logbook').then((data) => setLogs(Array.isArray(data) ? data : (data?.data || []))).catch(() => {});
-    apiJson('/api/cancel-requests').then((data) => setCancelRequests(data || [])).catch(() => {});
-    apiJson('/api/evaluations').then((data) => setEvaluations(data || [])).catch(() => {});
+    Promise.all([
+      apiJson('/api/my-applications').then((data) => setApplications(data || [])),
+      apiJson('/api/logbook').then((data) => setLogs(Array.isArray(data) ? data : (data?.data || []))),
+      apiJson('/api/cancel-requests').then((data) => setCancelRequests(data || [])),
+      apiJson('/api/evaluations').then((data) => setEvaluations(data || [])),
+    ]).then(() => setLoadError('')).catch((err) => setLoadError(friendlyApiError(err, 'โหลดข้อมูลอาจารย์ไม่สำเร็จ')));
   };
 
   useEffect(() => { 
@@ -49,17 +52,25 @@ export default function Teacher({ showToast }: { activeMenu?: string; setActiveM
 
   const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault(); if (!typedMessage.trim() || !activeChatId) return;
-    await apiJson('/api/chat/send', { method: 'POST', body: JSON.stringify({ application_id: activeChatId, text: typedMessage.trim() }) });
-    setTypedMessage('');
+    try {
+      await apiJson('/api/chat/send', { method: 'POST', body: JSON.stringify({ application_id: activeChatId, text: typedMessage.trim() }) });
+      setTypedMessage('');
+    } catch (err) {
+      notify(friendlyApiError(err, 'ส่งข้อความไม่สำเร็จ'), 'error');
+    }
   };
 
   const handleResolveRequest = async (id: number, appId: string, action: 'approve' | 'reject') => {
-    await apiJson('/api/resolve-cancel', {
-      method: 'POST',
-      body: JSON.stringify({ id, application_id: appId, action }),
-    });
-    notify(action === 'approve' ? 'อนุมัติการสละสิทธิ์แล้ว' : 'ปฏิเสธคำร้องแล้ว', 'success');
-    loadData();
+    try {
+      await apiJson('/api/resolve-cancel', {
+        method: 'POST',
+        body: JSON.stringify({ id, application_id: appId, action }),
+      });
+      notify(action === 'approve' ? 'อนุมัติการสละสิทธิ์แล้ว' : 'ปฏิเสธคำร้องแล้ว', 'success');
+      loadData();
+    } catch (err) {
+      notify(friendlyApiError(err, 'จัดการคำร้องไม่สำเร็จ'), 'error');
+    }
   };
 
   const generateTeacherHeatmap = (studentName: string) => {
@@ -79,6 +90,11 @@ export default function Teacher({ showToast }: { activeMenu?: string; setActiveM
 
   return (
     <div className="relative w-full pb-20 transition-colors duration-500 text-zinc-900 dark:text-zinc-100">
+      {loadError && (
+        <div className="max-w-6xl mx-auto mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-300">
+          {loadError}
+        </div>
+      )}
       <AnimatePresence mode="wait">
         <motion.div key="teacher-dashboard" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="w-full max-w-6xl mx-auto">
           

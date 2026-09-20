@@ -4,6 +4,7 @@ import Login from './Login';
 import Register from './Register';
 import Dashboard from './App.tsx';
 import StudentLogbook from './StudentLogbook';
+import { getAuthUser } from './apiClient';
 
 function applySavedTheme() {
   const savedTheme = localStorage.getItem('theme');
@@ -16,19 +17,17 @@ function applySavedTheme() {
 }
 
 function RoleRoute({ roles, children }) {
-  const token = localStorage.getItem('token');
-  const role = localStorage.getItem('role');
-  if (!token) return <Navigate to="/login" replace />;
-  if (roles && !roles.includes(role)) return <Navigate to="/" replace />;
+  const user = getAuthUser();
+  if (!user) return <Navigate to="/login" replace />;
+  if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />;
   return children;
 }
 
 function HomeRedirect() {
-  const token = localStorage.getItem('token');
-  const role = localStorage.getItem('role');
-  if (token && role === 'student') return <Navigate to="/student" replace />;
-  if (token && role === 'company') return <Navigate to="/company" replace />;
-  if (token && role === 'teacher') return <Navigate to="/teacher" replace />;
+  const user = getAuthUser();
+  if (user?.role === 'student') return <Navigate to="/student" replace />;
+  if (user?.role === 'company') return <Navigate to="/company" replace />;
+  if (user?.role === 'teacher') return <Navigate to="/teacher" replace />;
   return <Navigate to="/login" replace />;
 }
 

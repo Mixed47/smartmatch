@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { apiPublicJson, persistAuthToken, friendlyApiError } from './apiClient';
+import { Spinner } from './ui';
 
 const roleHome = {
   student: '/student',
@@ -91,45 +92,47 @@ export default function Login() {
   const mfaStep = Boolean(mfaToken);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#f8fafc] px-4 dark:bg-[#09090b]">
+    <div className="flex min-h-screen items-center justify-center bg-bg px-4 py-10 sm:px-6">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#4f46e5] text-white shadow-lg shadow-indigo-500/30">
-            <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-6 w-6">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-600 text-white shadow-lg shadow-brand-600/30">
+            <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.6} stroke="currentColor" className="h-6 w-6">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" />
             </svg>
           </div>
-          <h1 className="m-0 text-2xl font-black text-slate-900 dark:text-white">{mfaStep ? 'ยืนยันรหัส MFA' : 'เข้าสู่ระบบ'}</h1>
-          <p className="mt-2 text-sm font-medium text-slate-500 dark:text-zinc-400">
+          <h1 className="page-title">{mfaStep ? 'ยืนยันรหัส MFA' : 'เข้าสู่ระบบ'}</h1>
+          <p className="page-subtitle">
             {mfaStep ? 'เปิดแอป Authenticator แล้วกรอกรหัส 6 หลัก' : 'AI-InternMatch — ต้องยืนยัน MFA ก่อนเข้าใช้งาน'}
           </p>
         </div>
 
-        <form onSubmit={mfaStep ? handleMfaSubmit : handlePasswordSubmit} className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm dark:border-white/10 dark:bg-[#161616]">
-          <div className="space-y-4">
+        <form onSubmit={mfaStep ? handleMfaSubmit : handlePasswordSubmit} className="panel p-6 sm:p-8">
+          <div className="space-y-5">
             {!mfaStep && (
               <>
                 <div>
-                  <label htmlFor="login-email" className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">Email</label>
+                  <label htmlFor="login-email" className="label">อีเมล</label>
                   <input
                     id="login-email"
                     type="email"
+                    autoComplete="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-[#1a1a1a] px-4 py-3.5 text-sm text-white placeholder-gray-400 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                    className="input"
                     placeholder="you@example.com"
                   />
                 </div>
                 <div>
-                  <label htmlFor="login-password" className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">Password</label>
+                  <label htmlFor="login-password" className="label">รหัสผ่าน</label>
                   <input
                     id="login-password"
                     type="password"
+                    autoComplete="current-password"
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-[#1a1a1a] px-4 py-3.5 text-sm text-white placeholder-gray-400 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                    className="input"
                     placeholder="รหัสผ่านของคุณ"
                   />
                 </div>
@@ -139,14 +142,14 @@ export default function Login() {
             {mfaStep && (
               <>
                 {qrImage && (
-                  <div className="rounded-2xl border border-white/10 bg-[#111] p-4 text-center">
-                    <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-400">สแกน QR เพื่อผูกแอป Authenticator</p>
-                    <img src={qrImage} alt="MFA QR Code" className="mx-auto h-48 w-48 rounded-xl bg-white p-2" />
-                    {otpauthURL && <p className="mt-3 break-all text-[10px] text-zinc-500">{otpauthURL}</p>}
+                  <div className="card-soft p-4 text-center">
+                    <p className="eyebrow mb-3">สแกน QR เพื่อผูกแอป Authenticator</p>
+                    <img src={qrImage} alt="QR Code สำหรับตั้งค่า MFA" className="mx-auto h-44 w-44 rounded-xl bg-white p-2 sm:h-48 sm:w-48" />
+                    {otpauthURL && <p className="mt-3 break-all text-[11px] text-ink-subtle">{otpauthURL}</p>}
                   </div>
                 )}
                 <div>
-                  <label htmlFor="login-otp" className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">รหัส OTP 6 หลัก</label>
+                  <label htmlFor="login-otp" className="label">รหัส OTP 6 หลัก</label>
                   <input
                     id="login-otp"
                     inputMode="numeric"
@@ -156,44 +159,42 @@ export default function Login() {
                     required
                     value={otp}
                     onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    className="w-full rounded-2xl border border-white/10 bg-[#1a1a1a] px-4 py-3.5 text-center text-lg tracking-[0.4em] text-white placeholder-gray-400 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                    className="input text-center text-lg tracking-[0.4em]"
                     placeholder="000000"
                   />
+                  <p className="field-hint">กรอกรหัสที่แสดงในแอป Authenticator ของคุณ</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => { setMfaToken(''); setOtp(''); setQrImage(''); setError(''); }}
-                  className="w-full text-xs font-bold text-slate-500 hover:underline"
+                  className="btn btn-ghost btn-sm btn-block"
                 >
-                  กลับไปกรอกอีเมล / รหัสผ่าน
+                  ← กลับไปกรอกอีเมล / รหัสผ่าน
                 </button>
               </>
             )}
 
             {info && !error && (
-              <p className="rounded-2xl bg-indigo-50 px-4 py-3 text-sm font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
-                {info}
-              </p>
+              <p className="alert alert-info" role="status">{info}</p>
             )}
             {error && (
-              <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-600 dark:bg-rose-500/10 dark:text-rose-400">
-                {error}
-              </p>
+              <p className="alert alert-danger" role="alert">{error}</p>
             )}
 
             <button
               type="submit"
               disabled={loading || (mfaStep && otp.length !== 6)}
-              className="w-full rounded-2xl bg-[#4f46e5] py-3.5 text-sm font-bold text-white shadow-md shadow-indigo-500/20 transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
+              className="btn btn-primary btn-lg btn-block"
             >
+              {loading && <Spinner />}
               {loading ? 'กำลังตรวจสอบ...' : mfaStep ? 'ยืนยันรหัส MFA' : 'เข้าสู่ระบบ'}
             </button>
           </div>
         </form>
 
-        <p className="mt-6 text-center text-sm text-slate-500">
+        <p className="mt-6 text-center text-sm text-ink-muted">
           ยังไม่มีบัญชี?{' '}
-          <Link to="/register" className="font-bold text-[#4f46e5] hover:underline dark:text-indigo-400">
+          <Link to="/register" className="font-semibold text-brand-600 underline-offset-4 hover:underline dark:text-brand-400">
             สมัครสมาชิก
           </Link>
         </p>

@@ -3,18 +3,20 @@ import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { Skill, JobMatch, Application } from './types';
 import { apiFetch, apiJson, friendlyApiError } from './apiClient';
 import StudentPetitions from './StudentPetitions';
+import { EmptyState, PageHeading, Skeleton, SkeletonList, Spinner } from './ui';
 
 interface Message { id: number; application_id: string; sender: string; text: string; created_at: string; }
-interface LogEntry { date: string; category: string; activity: string; blocker: string; }
 
-const IconSparkles = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>;
-const IconChat = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.436 3 11.996c0 2.29.932 4.35 2.44 5.86l-1.92 2.91a.75.75 0 00.91 1.09l3.22-1.39a9.123 9.123 0 004.35 1.034z" /></svg>;
-const IconTeacher = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5" /></svg>;
-const IconAlert = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>;
+const IconSparkles = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>;
+const IconChat = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.436 3 11.996c0 2.29.932 4.35 2.44 5.86l-1.92 2.91a.75.75 0 00.91 1.09l3.22-1.39a9.123 9.123 0 004.35 1.034z" /></svg>;
+const IconTeacher = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-5 w-5"><path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5" /></svg>;
+const IconAlert = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-5 w-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>;
+const IconClose = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>;
+const IconSend = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>;
+const IconUserCircle = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-10 w-10"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>;
 
-const containerVariants: Variants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.1 } } };
-const itemVariants: Variants = { hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 100, damping: 15 } } };
-const formatThaiDate = (dateString: string) => { return new Date(dateString).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' }); };
+const containerVariants: Variants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.08 } } };
+const itemVariants: Variants = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 110, damping: 16 } } };
 
 const emptyStudentProfile = {
   firstName: '',
@@ -27,6 +29,14 @@ const emptyStudentProfile = {
   major: '',
   address: '',
   github: '',
+};
+
+const STATUS_BADGE: Record<string, { cls: string; label: string }> = {
+  Pending: { cls: 'badge-warning', label: 'รอพิจารณา' },
+  Rejected: { cls: 'badge-danger', label: 'ไม่ผ่านการพิจารณา' },
+  Canceled: { cls: 'badge-neutral', label: 'สละสิทธิ์แล้ว' },
+  Completed: { cls: 'badge-info', label: 'ประเมินผลแล้ว' },
+  Matched: { cls: 'badge-success', label: 'ตอบรับแล้ว (Matched)' },
 };
 
 export default function Student({ activeMenu, setActiveMenu, showToast }: { activeMenu: string, setActiveMenu: (m: string) => void, showToast: (msg: string, type: 'success'|'error'|'info') => void }) {
@@ -42,18 +52,15 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
   const [expText, setExpText] = useState('');
   const [loading, setLoading] = useState(false);
   const [matchedJobs, setMatchedJobs] = useState<JobMatch[]>([]);
-  const [uploadedResumeUrl, setUploadedResumeUrl] = useState<string>(''); 
+  const [uploadedResumeUrl, setUploadedResumeUrl] = useState<string>('');
   const [myApps, setMyApps] = useState<Application[]>([]);
+  const [appsLoading, setAppsLoading] = useState(true);
   const [swipeDirection, setSwipeDirection] = useState<'left' | 'right' | null>(null);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const [typedMessage, setTypedMessage] = useState<string>('');
   const [aiContent, setAiContent] = useState<{ [key: string]: { type: string, data: string } }>({});
   const [aiLoading, setAiLoading] = useState(false);
-  const [logCategory, setLogCategory] = useState('Coding');
-  const [logActivity, setLogActivity] = useState('');
-  const [logBlocker, setLogBlocker] = useState('');
-  const [logs, setLogs] = useState<LogEntry[]>([]);
 
   const [cancelModal, setCancelModal] = useState({ show: false, appId: '', companyName: '' });
   const [cancelReason, setCancelReason] = useState('');
@@ -62,7 +69,8 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
   const fetchApplications = () => {
     apiJson('/api/my-applications')
       .then((data) => { setMyApps(Array.isArray(data) ? data : []); setLoadError(''); })
-      .catch((err) => { setLoadError(friendlyApiError(err, 'โหลดใบสมัครไม่สำเร็จ')); });
+      .catch((err) => { setLoadError(friendlyApiError(err, 'โหลดใบสมัครไม่สำเร็จ')); })
+      .finally(() => setAppsLoading(false));
   };
 
   const loadProfile = () => {
@@ -112,26 +120,13 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
   }, [activeMenu, skills, myApps]);
 
   useEffect(() => {
-    if (activeMenu === '3') {
-      apiJson('/api/logbook').then((data) => {
-        const list = Array.isArray(data) ? data : (data?.data || []);
-        setLogs(list.map((l: any) => ({
-          date: l.date || l.created_at,
-          category: l.category || 'Daily',
-          activity: l.activity || l.tasks || '',
-          blocker: l.blocker,
-        })));
-      }).catch((err) => { setLoadError(friendlyApiError(err, 'โหลดสมุดสหกิจไม่สำเร็จ')); });
-    }
-  }, [activeMenu]);
-
-  useEffect(() => {
     if (!activeChatId) return;
     const fetchChat = () => apiJson(`/api/chat/messages?application_id=${encodeURIComponent(activeChatId)}`).then((data) => setChatMessages(data || [])).catch((err) => { setLoadError(friendlyApiError(err, 'โหลดข้อความแชทไม่สำเร็จ')); });
     fetchChat(); const interval = setInterval(fetchChat, 2000); return () => clearInterval(interval);
   }, [activeChatId]);
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files && e.target.files[0]) setAvatar(URL.createObjectURL(e.target.files[0])); };
+
   const handleSaveProfile = async () => {
     setProfileSaving(true);
     try {
@@ -225,334 +220,566 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
   };
 
   const generateAI = async (type: 'email' | 'interview', app: Application) => {
-      setAiLoading(true); setAiContent({ ...aiContent, [app.id]: { type, data: 'กำลังวิเคราะห์และประมวลผลด้วย AI...' } });
-      const endpoint = type === 'email' ? 'generate-email' : 'generate-questions';
-      const body = type === 'email' ? { name: app.name, job_title: app.job_title, company: app.company, skills: [] } : { job_title: app.job_title };
-      try {
-        const data = await apiJson(`/api/${endpoint}`, { method: 'POST', body: JSON.stringify(body) });
-        setAiContent({ ...aiContent, [app.id]: { type, data: type === 'email' ? data.email : data.questions } });
-        showToast('ประมวลผลเสร็จสมบูรณ์!', 'success');
-      } catch (e) { showToast(friendlyApiError(e, 'การประมวลผลล้มเหลว'), 'error'); } finally { setAiLoading(false); }
-    };
-
-  const handleSaveLogbook = async () => {
+    setAiLoading(true); setAiContent({ ...aiContent, [app.id]: { type, data: 'กำลังวิเคราะห์และประมวลผลด้วย AI...' } });
+    const endpoint = type === 'email' ? 'generate-email' : 'generate-questions';
+    const body = type === 'email' ? { name: app.name, job_title: app.job_title, company: app.company, skills: [] } : { job_title: app.job_title };
     try {
-      const saved = await apiJson('/api/logbook', {
-        method: 'POST',
-        body: JSON.stringify({
-          date: new Date().toISOString().split('T')[0],
-          tasks: logActivity,
-          blocker: logBlocker,
-        }),
-      });
-      const critical = Boolean(saved?.evaluation?.is_critical || saved?.is_critical);
-      showToast(critical ? 'บันทึกสำเร็จ และ AI แจ้งปัญหาด่วนให้อาจารย์แล้ว' : 'บันทึกสมุดสหกิจสำเร็จ และ AI ประเมินผลแล้ว', 'success');
-      setLogActivity(''); setLogBlocker('');
-      apiJson('/api/logbook').then((data) => {
-        const list = Array.isArray(data) ? data : (data?.data || []);
-        setLogs(list.map((l: any) => ({
-          date: l.date || l.created_at,
-          category: l.category || 'Daily',
-          activity: l.activity || l.tasks || '',
-          blocker: l.blocker,
-        })));
-      }).catch(() => {});
-    } catch (e) { showToast(friendlyApiError(e, 'เกิดข้อผิดพลาดในการบันทึก'), 'error'); }
-  };
-
-  const generateHeatmap = () => {
-    const days = []; const today = new Date();
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(today); d.setDate(today.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
-      days.push({ date: dateStr, hasLog: logs.some(log => log.date === dateStr) });
-    }
-    return days;
+      const data = await apiJson(`/api/${endpoint}`, { method: 'POST', body: JSON.stringify(body) });
+      setAiContent({ ...aiContent, [app.id]: { type, data: type === 'email' ? data.email : data.questions } });
+      showToast('ประมวลผลเสร็จสมบูรณ์!', 'success');
+    } catch (e) { showToast(friendlyApiError(e, 'การประมวลผลล้มเหลว'), 'error'); } finally { setAiLoading(false); }
   };
 
   const pendingAppsCount = myApps.filter(a => a.status === 'Pending').length;
   const matchedAppsCount = myApps.filter(a => a.status === 'Matched').length;
 
+  const profileField = (
+    label: string,
+    key: keyof typeof emptyStudentProfile,
+    type: string = 'text',
+    wide = false,
+  ) => (
+    <div className={wide ? 'sm:col-span-2' : undefined}>
+      <label htmlFor={`profile-${key}`} className="label">{label}</label>
+      <input
+        id={`profile-${key}`}
+        type={type}
+        value={profileData[key]}
+        onChange={(e) => setProfileData({ ...profileData, [key]: e.target.value })}
+        className="input"
+      />
+    </div>
+  );
+
   return (
-    <div className="relative w-full min-h-screen pb-20 transition-colors duration-500 text-zinc-900 dark:text-zinc-100">
+    <div className="relative w-full text-ink">
       {loadError && (
-        <div className="max-w-5xl mx-auto mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-300">
-          {loadError}
-        </div>
+        <div className="alert alert-danger mb-6" role="alert">{loadError}</div>
       )}
+
+      {/* ---------- Cancel request modal ---------- */}
       <AnimatePresence>
         {cancelModal.show && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="w-full max-w-md p-6 bg-white border dark:bg-[#161616] rounded-3xl border-zinc-200 dark:border-zinc-800 shadow-2xl">
-              <h3 className="flex items-center gap-2 mb-2 text-xl font-bold text-rose-600 dark:text-rose-500"><IconAlert /> ยืนยันการสละสิทธิ์</h3>
-              <p className="mb-6 text-sm text-zinc-600 dark:text-zinc-400">คุณต้องการสละสิทธิ์จากบริษัท <strong className="text-zinc-900 dark:text-zinc-100">{cancelModal.companyName}</strong> ใช่หรือไม่? คำร้องนี้จะถูกส่งให้อาจารย์อนุมัติ</p>
-              
-              <label className="block mb-2 text-xs font-bold tracking-wide uppercase text-zinc-500">ระบุเหตุผล (บังคับ)</label>
-              <textarea value={cancelReason} onChange={e=>setCancelReason(e.target.value)} placeholder="เช่น ได้งานที่อื่นแล้ว, การเดินทางไม่สะดวก..." className="w-full h-24 p-3 mb-6 text-sm transition-all border outline-none resize-none bg-[#1a1a1a] text-white placeholder-gray-400 border-white/10 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-500" />
-              
-              <div className="flex gap-3">
-                <button onClick={() => setCancelModal({show:false, appId:'', companyName:''})} className="flex-1 py-3 text-sm font-bold transition-colors bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-xl hover:bg-zinc-200 dark:hover:bg-zinc-700">ยกเลิก</button>
-                <button onClick={submitCancelRequest} className="flex-1 py-3 text-sm font-bold text-white transition-colors shadow-lg bg-rose-600 rounded-xl hover:bg-rose-700">ส่งคำร้อง</button>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-end justify-center bg-overlay p-4 backdrop-blur-sm sm:items-center"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-modal-title"
+          >
+            <motion.div
+              initial={{ scale: 0.96, y: 24 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.96, y: 24 }}
+              className="w-full max-w-md rounded-3xl border border-line bg-surface p-6 shadow-2xl"
+            >
+              <h3 id="cancel-modal-title" className="flex items-center gap-2 text-lg font-bold text-rose-600 dark:text-rose-400">
+                <IconAlert /> ยืนยันการสละสิทธิ์
+              </h3>
+              <p className="mt-2 text-sm text-ink-muted">
+                คุณต้องการสละสิทธิ์จากบริษัท <strong className="text-ink">{cancelModal.companyName}</strong> ใช่หรือไม่?
+                คำร้องนี้จะถูกส่งให้อาจารย์อนุมัติ
+              </p>
+
+              <div className="mt-6">
+                <label htmlFor="cancel-reason" className="label">ระบุเหตุผล (บังคับ)</label>
+                <textarea
+                  id="cancel-reason"
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="เช่น ได้งานที่อื่นแล้ว, การเดินทางไม่สะดวก..."
+                  className="textarea h-24"
+                />
+              </div>
+
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                <button type="button" onClick={() => setCancelModal({ show: false, appId: '', companyName: '' })} className="btn btn-outline btn-block">ยกเลิก</button>
+                <button type="button" onClick={submitCancelRequest} className="btn btn-danger btn-block">ส่งคำร้อง</button>
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setActiveChatId(activeChatId === 'GENERAL-CHAT' ? null : 'GENERAL-CHAT')} className="fixed z-50 flex items-center justify-center gap-2 px-5 h-12 transition-all border rounded-full shadow-lg shadow-indigo-500/30 bottom-20 right-6 bg-[#4f46e5] border-indigo-400 text-white hover:bg-indigo-600">
-        <IconTeacher /><span className="hidden text-sm font-bold sm:block">ปรึกษาอาจารย์</span>
+      {/* ---------- Floating advisor chat ---------- */}
+      <motion.button
+        type="button"
+        whileTap={{ scale: 0.96 }}
+        onClick={() => setActiveChatId(activeChatId === 'GENERAL-CHAT' ? null : 'GENERAL-CHAT')}
+        className="btn btn-primary fixed bottom-5 right-4 z-40 h-12 rounded-full px-4 shadow-lg shadow-brand-600/30 sm:bottom-8 sm:right-8 sm:px-5"
+        aria-expanded={activeChatId === 'GENERAL-CHAT'}
+      >
+        <IconTeacher />
+        <span className="hidden sm:inline">ปรึกษาอาจารย์</span>
       </motion.button>
 
       <AnimatePresence>
         {activeChatId === 'GENERAL-CHAT' && (
-          <motion.div initial={{ opacity: 0, y: 20, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.9 }} className="fixed z-50 bottom-36 right-6 w-80 bg-white dark:bg-[#121212] border border-zinc-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col h-[400px]">
-            <div className="z-10 flex items-center justify-between px-4 py-3 text-white shadow-md bg-zinc-900 dark:bg-white dark:text-black">
-              <span className="flex items-center gap-2 text-xs font-bold"><IconTeacher /> ห้องแชทที่ปรึกษา</span>
-              <button onClick={() => setActiveChatId(null)} className="transition-opacity opacity-70 hover:opacity-100"><IconAlert /></button>
+          <motion.div
+            initial={{ opacity: 0, y: 16, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 16, scale: 0.97 }}
+            className="fixed bottom-20 right-4 z-40 flex h-[26rem] w-[min(21rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl sm:bottom-24 sm:right-8"
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-line bg-surface-2 px-4 py-3">
+              <span className="flex items-center gap-2 text-sm font-semibold text-ink"><IconTeacher /> ห้องแชทที่ปรึกษา</span>
+              <button type="button" onClick={() => setActiveChatId(null)} className="icon-btn h-8 w-8" aria-label="ปิดหน้าต่างแชท"><IconClose /></button>
             </div>
-            <div className="flex-1 p-4 space-y-3 overflow-y-auto bg-zinc-50 dark:bg-transparent">
-              {chatMessages.length === 0 ? <p className="mt-10 text-xs text-center text-zinc-400">ส่งข้อความเพื่อปรึกษาเรื่องที่ฝึกงาน หรือการเตรียมตัวสัมภาษณ์ได้เลยครับ</p> :
-                chatMessages.map(m => (
-                  <div key={m.id} className={`max-w-[80%] p-3 rounded-xl text-xs shadow-sm ${m.sender === 'student' ? 'bg-[#4f46e5] text-white ml-auto rounded-tr-none' : 'bg-white dark:bg-[#1a1a1a] text-zinc-800 dark:text-zinc-200 mr-auto rounded-tl-none border border-zinc-200 dark:border-white/5'}`}>
-                    <p className="m-0 leading-relaxed">{m.text}</p>
+            <div className="chat-window flex-1">
+              {chatMessages.length === 0 ? (
+                <p className="mt-10 px-4 text-center text-sm text-ink-muted">
+                  ส่งข้อความเพื่อปรึกษาเรื่องที่ฝึกงาน หรือการเตรียมตัวสัมภาษณ์ได้เลยครับ
+                </p>
+              ) : (
+                chatMessages.map((m) => (
+                  <div key={m.id} className={`bubble ${m.sender === 'student' ? 'bubble-me' : 'bubble-them'}`}>
+                    <p>{m.text}</p>
                   </div>
                 ))
-              }
+              )}
             </div>
-            <form onSubmit={handleSendChat} className="p-3 bg-white dark:bg-[#121212] border-t border-zinc-200 dark:border-white/5 flex gap-2">
-              <input type="text" value={typedMessage} onChange={e=>setTypedMessage(e.target.value)} placeholder="พิมพ์ข้อความ..." className="flex-1 px-3 py-2 text-xs border rounded-lg bg-[#1a1a1a] border-white/10 outline-none text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500" />
-              <button type="submit" className="bg-[#4f46e5] text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-indigo-600 transition-colors">ส่ง</button>
+            <form onSubmit={handleSendChat} className="flex gap-2 border-t border-line bg-surface p-3">
+              <label htmlFor="advisor-chat-input" className="sr-only">ข้อความ</label>
+              <input id="advisor-chat-input" type="text" value={typedMessage} onChange={(e) => setTypedMessage(e.target.value)} placeholder="พิมพ์ข้อความ..." className="input py-2.5 text-sm" />
+              <button type="submit" disabled={!typedMessage.trim()} className="btn btn-primary btn-sm shrink-0" aria-label="ส่งข้อความ"><IconSend /></button>
             </form>
           </motion.div>
         )}
       </AnimatePresence>
 
       <AnimatePresence mode="wait">
-        
+
         {activeMenu === 'petitions' && (
           <motion.div key="petitions" variants={containerVariants} initial="hidden" animate="show" exit="hidden">
             <StudentPetitions showToast={showToast} />
           </motion.div>
         )}
 
+        {/* ---------- Dashboard ---------- */}
         {activeMenu === 'student-home' && (
-          <motion.div key="student-home" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="w-full max-w-5xl mx-auto">
-            <motion.div variants={itemVariants} className="mb-10">
-              <h2 className="text-3xl font-extrabold tracking-tighter text-zinc-900 dark:text-zinc-100">สวัสดี, {profileData.nickname || profileData.firstName || 'นักศึกษา'} 👋</h2>
-              <p className="mt-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">ภาพรวมการหาสถานที่ฝึกงานและบันทึกสหกิจศึกษาของคุณ</p>
+          <motion.div key="student-home" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="w-full">
+            <motion.div variants={itemVariants}>
+              <PageHeading
+                title={`สวัสดี, ${profileData.nickname || profileData.firstName || 'นักศึกษา'} 👋`}
+                subtitle="ภาพรวมการหาสถานที่ฝึกงานและบันทึกสหกิจศึกษาของคุณ"
+              />
             </motion.div>
 
-            <motion.div variants={containerVariants} className="grid grid-cols-1 gap-6 mb-10 md:grid-cols-3">
-              <motion.div variants={itemVariants} whileHover={{ y: -4 }} onClick={() => setActiveMenu('3')} className="cursor-pointer p-6 bg-white dark:bg-[#161616] border border-zinc-200/50 dark:border-white/5 shadow-sm rounded-3xl relative overflow-hidden group">
-                <div className="absolute inset-0 transition-opacity duration-500 opacity-0 bg-amber-500/5 dark:bg-amber-500/10 group-hover:opacity-100"></div>
-                <h3 className="m-0 text-4xl font-black tracking-tighter text-zinc-900 dark:text-white">{pendingAppsCount}</h3>
-                <p className="mt-2 text-xs font-bold tracking-wide uppercase text-zinc-500 dark:text-zinc-400">ใบสมัครที่รอพิจารณา</p>
-              </motion.div>
+            <motion.div variants={containerVariants} className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
+              <motion.button
+                type="button"
+                variants={itemVariants}
+                onClick={() => setActiveMenu('3')}
+                className="card card-interactive card-pad text-left"
+              >
+                <p className="stat-value text-amber-600 dark:text-amber-400">{appsLoading ? '—' : pendingAppsCount}</p>
+                <p className="stat-label">ใบสมัครที่รอพิจารณา</p>
+              </motion.button>
 
-              <motion.div variants={itemVariants} whileHover={{ y: -4 }} onClick={() => setActiveMenu('3')} className="cursor-pointer p-6 bg-white dark:bg-[#161616] border border-zinc-200/50 dark:border-white/5 shadow-sm rounded-3xl relative overflow-hidden group">
-                <div className="absolute inset-0 transition-opacity duration-500 opacity-0 bg-emerald-500/5 dark:bg-emerald-500/10 group-hover:opacity-100"></div>
-                <h3 className="m-0 text-4xl font-black tracking-tighter text-emerald-600 dark:text-emerald-400">{matchedAppsCount}</h3>
-                <p className="mt-2 text-xs font-bold tracking-wide uppercase text-zinc-500 dark:text-zinc-400">บริษัทที่ตอบรับคุณ</p>
-              </motion.div>
+              <motion.button
+                type="button"
+                variants={itemVariants}
+                onClick={() => setActiveMenu('3')}
+                className="card card-interactive card-pad text-left"
+              >
+                <p className="stat-value text-emerald-600 dark:text-emerald-400">{appsLoading ? '—' : matchedAppsCount}</p>
+                <p className="stat-label">บริษัทที่ตอบรับคุณ</p>
+              </motion.button>
             </motion.div>
 
-            <motion.h3 variants={itemVariants} className="mb-6 text-sm font-bold tracking-widest uppercase text-zinc-400 dark:text-zinc-500">Quick Actions</motion.h3>
+            <motion.h3 variants={itemVariants} className="eyebrow mb-4">ทางลัดที่ใช้บ่อย</motion.h3>
             <motion.div variants={containerVariants} className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <motion.button variants={itemVariants} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setActiveMenu('1')} className="flex items-center justify-between p-6 text-white bg-indigo-600 shadow-lg dark:bg-indigo-500 rounded-2xl shadow-indigo-500/20">
-                <div className="text-left"><h4 className="m-0 text-lg font-bold">อัปเดตเรซูเม่ & ทักษะ</h4><p className="mt-1 text-xs text-indigo-100 opacity-80">ให้ AI สกัดทักษะใหม่ล่าสุดของคุณ</p></div><IconSparkles />
+              <motion.button
+                type="button"
+                variants={itemVariants}
+                onClick={() => setActiveMenu('1')}
+                className="flex items-center justify-between gap-4 rounded-2xl bg-brand-600 p-5 text-left text-white shadow-md shadow-brand-600/25 transition hover:bg-brand-700 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-bg active:scale-[0.99] sm:p-6"
+              >
+                <span>
+                  <span className="block text-base font-semibold sm:text-lg">อัปเดตเรซูเม่ &amp; ทักษะ</span>
+                  <span className="mt-1 block text-sm text-brand-100">ให้ AI สกัดทักษะใหม่ล่าสุดของคุณ</span>
+                </span>
+                <IconSparkles />
               </motion.button>
-              <motion.button variants={itemVariants} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setActiveMenu('2')} className="flex items-center justify-between p-6 text-white shadow-lg bg-zinc-900 dark:bg-white dark:text-black rounded-2xl shadow-zinc-900/20 dark:shadow-none">
-                <div className="text-left"><h4 className="m-0 text-lg font-bold">ค้นหาที่ฝึกงานใหม่</h4><p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">ปัดขวาเพื่อเลือกบริษัทที่ตรงใจคุณ</p></div>
+
+              <motion.button
+                type="button"
+                variants={itemVariants}
+                onClick={() => setActiveMenu('2')}
+                className="flex items-center justify-between gap-4 rounded-2xl bg-zinc-900 p-5 text-left text-white shadow-md transition hover:bg-zinc-800 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-bg active:scale-[0.99] dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200 sm:p-6"
+              >
+                <span>
+                  <span className="block text-base font-semibold sm:text-lg">ค้นหาที่ฝึกงานใหม่</span>
+                  <span className="mt-1 block text-sm text-zinc-300 dark:text-zinc-600">ปัดขวาเพื่อเลือกบริษัทที่ตรงใจคุณ</span>
+                </span>
               </motion.button>
             </motion.div>
           </motion.div>
         )}
 
+        {/* ---------- My profile ---------- */}
         {activeMenu === '0' && (
-          <motion.div key="menu0" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="w-full max-w-4xl mx-auto">
-            <motion.h2 variants={itemVariants} className="mb-8 text-3xl font-extrabold tracking-tighter text-zinc-900 dark:text-zinc-100">My Profile</motion.h2>
-            {profileLoading && (
-              <p className="mb-4 text-sm font-medium text-zinc-500">กำลังโหลดโปรไฟล์จากเซิร์ฟเวอร์...</p>
-            )}
+          <motion.div key="menu0" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="mx-auto w-full max-w-3xl">
+            <motion.div variants={itemVariants}>
+              <PageHeading title="โปรไฟล์ของฉัน" subtitle="ข้อมูลนี้จะถูกส่งให้บริษัทเมื่อคุณสมัครงาน" eyebrow="Student Module" />
+            </motion.div>
+
             {internship && (
-              <motion.div variants={itemVariants} className="p-5 mb-6 border rounded-2xl bg-emerald-50/80 dark:bg-emerald-500/10 border-emerald-200/60 dark:border-emerald-500/20">
-                <p className="m-0 text-xs font-bold tracking-wide uppercase text-emerald-700 dark:text-emerald-400">สถานะการฝึกงาน</p>
-                <p className="m-0 mt-2 text-sm font-semibold text-zinc-800 dark:text-zinc-100">{internship.job_title} @ {internship.company}</p>
-                <p className="m-0 mt-1 text-xs text-zinc-500">{internship.status}</p>
+              <motion.div variants={itemVariants} className="alert alert-success mb-6 flex-col items-start">
+                <p className="eyebrow text-emerald-700 dark:text-emerald-300">สถานะการฝึกงาน</p>
+                <p className="text-sm font-semibold">{internship.job_title} @ {internship.company}</p>
+                <p className="text-xs opacity-80">{internship.status}</p>
               </motion.div>
             )}
-            <motion.div variants={itemVariants} className="p-8 mb-8 bg-white/70 dark:bg-[#161616] backdrop-blur-xl border shadow-sm rounded-[2rem] border-zinc-200/50 dark:border-white/5">
-              <div className="flex flex-col items-center gap-6 mb-10 sm:flex-row">
-                <div className="relative flex items-center justify-center overflow-hidden border-4 border-white rounded-full shadow-xl cursor-pointer w-28 h-28 bg-zinc-100 dark:bg-zinc-800 dark:border-zinc-700 group">
-                  {avatar ? <img src={avatar} alt="Profile" className="object-cover w-full h-full" /> : <div className="text-zinc-400"><svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg></div>}
-                  <div className="absolute inset-0 flex items-center justify-center transition-opacity opacity-0 bg-black/60 group-hover:opacity-100 backdrop-blur-sm"><span className="text-xs font-bold tracking-wider text-white uppercase">Upload</span></div>
-                  <input type="file" onChange={handleAvatarUpload} className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" />
+
+            <motion.div variants={itemVariants} className="panel p-5 sm:p-8">
+              <div className="mb-8 flex flex-col items-center gap-5 sm:flex-row sm:gap-6">
+                <div className="group relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-surface-2 sm:h-28 sm:w-28">
+                  {avatar
+                    ? <img src={avatar} alt="รูปโปรไฟล์" className="h-full w-full object-cover" />
+                    : <span className="text-ink-subtle"><IconUserCircle /></span>}
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-xs font-semibold uppercase tracking-wide text-white opacity-0 transition group-hover:opacity-100">
+                    เปลี่ยนรูป
+                  </span>
+                  <input type="file" onChange={handleAvatarUpload} className="absolute inset-0 cursor-pointer opacity-0" accept="image/*" aria-label="อัปโหลดรูปโปรไฟล์" />
                 </div>
-                <div>
-                  <h3 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">{profileData.firstName} {profileData.lastName} ({profileData.nickname})</h3>
-                  <p className="mt-1 text-sm font-medium text-indigo-600 dark:text-indigo-400">{profileData.major} | {profileData.university}</p>
+
+                <div className="min-w-0 text-center sm:text-left">
+                  {profileLoading ? (
+                    <div className="space-y-2">
+                      <Skeleton className="h-6 w-48" />
+                      <Skeleton className="h-4 w-32" />
+                    </div>
+                  ) : (
+                    <>
+                      <h3 className="truncate text-lg font-bold text-ink sm:text-xl">
+                        {[profileData.firstName, profileData.lastName].filter(Boolean).join(' ') || 'ยังไม่ได้กรอกชื่อ'}
+                        {profileData.nickname && <span className="text-ink-muted"> ({profileData.nickname})</span>}
+                      </h3>
+                      <p className="mt-1 text-sm font-medium text-brand-600 dark:text-brand-400">
+                        {[profileData.major, profileData.university].filter(Boolean).join(' · ') || 'ยังไม่ได้ระบุสาขา / สถาบัน'}
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                <div><label className="block mb-2 text-xs font-semibold tracking-wide uppercase text-zinc-500 dark:text-zinc-400">ชื่อจริง</label><input type="text" value={profileData.firstName} onChange={e => setProfileData({...profileData, firstName: e.target.value})} className="w-full p-4 text-sm transition-all bg-[#1a1a1a] border border-white/10 outline-none rounded-2xl focus:border-blue-500 focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400 scheme-dark" /></div>
-                <div><label className="block mb-2 text-xs font-semibold tracking-wide uppercase text-zinc-500 dark:text-zinc-400">นามสกุล</label><input type="text" value={profileData.lastName} onChange={e => setProfileData({...profileData, lastName: e.target.value})} className="w-full p-4 text-sm transition-all bg-[#1a1a1a] border border-white/10 outline-none rounded-2xl focus:border-blue-500 focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400 scheme-dark" /></div>
-                <div><label className="block mb-2 text-xs font-semibold tracking-wide uppercase text-zinc-500 dark:text-zinc-400">ชื่อเล่น</label><input type="text" value={profileData.nickname} onChange={e => setProfileData({...profileData, nickname: e.target.value})} className="w-full p-4 text-sm transition-all bg-[#1a1a1a] border border-white/10 outline-none rounded-2xl focus:border-blue-500 focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400 scheme-dark" /></div>
-                <div><label className="block mb-2 text-xs font-semibold tracking-wide uppercase text-zinc-500 dark:text-zinc-400">วันเกิด</label><input type="date" value={profileData.dob} onChange={e => setProfileData({...profileData, dob: e.target.value})} className="w-full p-4 text-sm transition-all bg-[#1a1a1a] border border-white/10 outline-none rounded-2xl focus:border-blue-500 focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400 scheme-dark" /></div>
-                <div className="md:col-span-2"><label className="block mb-2 text-xs font-semibold tracking-wide uppercase text-zinc-500 dark:text-zinc-400">อีเมล</label><input type="email" value={profileData.email} onChange={e => setProfileData({...profileData, email: e.target.value})} className="w-full p-4 text-sm transition-all bg-[#1a1a1a] border border-white/10 outline-none rounded-2xl focus:border-blue-500 focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400 scheme-dark" /></div>
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                {profileField('ชื่อจริง', 'firstName')}
+                {profileField('นามสกุล', 'lastName')}
+                {profileField('ชื่อเล่น', 'nickname')}
+                {profileField('วันเกิด', 'dob', 'date')}
+                {profileField('เบอร์โทรศัพท์', 'phone', 'tel')}
+                {profileField('GitHub / Portfolio', 'github', 'url')}
+                {profileField('สถาบันการศึกษา', 'university')}
+                {profileField('สาขาวิชา', 'major')}
+                {profileField('อีเมล', 'email', 'email', true)}
               </div>
-              <div className="pt-8 mt-8 border-t border-zinc-100 dark:border-white/5">
-                <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} onClick={handleSaveProfile} disabled={profileSaving || profileLoading} className="w-full py-4 text-sm font-semibold tracking-tight text-white transition-colors shadow-lg bg-zinc-900 dark:bg-white dark:text-black rounded-2xl hover:bg-zinc-800 disabled:opacity-50">{profileSaving ? 'กำลังบันทึก...' : 'บันทึกการเปลี่ยนแปลง'}</motion.button>
+
+              <div className="divider mt-8 pt-6">
+                <button
+                  type="button"
+                  onClick={handleSaveProfile}
+                  disabled={profileSaving || profileLoading}
+                  className="btn btn-neutral btn-lg btn-block"
+                >
+                  {profileSaving && <Spinner />}
+                  {profileSaving ? 'กำลังบันทึก...' : 'บันทึกการเปลี่ยนแปลง'}
+                </button>
               </div>
             </motion.div>
           </motion.div>
         )}
 
+        {/* ---------- AI skill extraction ---------- */}
         {activeMenu === '1' && (
-          <motion.div key="menu1" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="w-full max-w-6xl mx-auto">
-            <motion.div variants={itemVariants} className="flex items-center justify-between mb-8">
-              <h2 className="text-3xl font-extrabold tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400">AI Skill Extractor</h2>
-              <span className="px-4 py-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full">SYSTEM READY</span>
+          <motion.div key="menu1" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="w-full">
+            <motion.div variants={itemVariants}>
+              <PageHeading
+                title="สกัดทักษะด้วย AI"
+                subtitle="อัปโหลดเรซูเม่ แล้ว AI จะสกัดทักษะพร้อมจัดเกรดให้อัตโนมัติ"
+                eyebrow="AI Skill Extractor"
+                actions={<span className="badge badge-success">ระบบพร้อมใช้งาน</span>}
+              />
             </motion.div>
-            <div className="flex flex-col gap-8 lg:flex-row">
-              <motion.div variants={itemVariants} className="w-full p-8 bg-white/70 dark:bg-[#121212] backdrop-blur-xl border border-zinc-200/50 dark:border-white/5 shadow-sm lg:w-1/3 rounded-[2rem]">
-                <h3 className="mb-6 text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">ข้อมูลตั้งต้น (Input Data)</h3>
-                <div className="relative p-6 mb-6 text-center transition-colors border border-indigo-300 border-dashed dark:border-white/10 group bg-indigo-50/50 dark:bg-white/5 rounded-2xl hover:bg-indigo-50 dark:hover:bg-white/10">
-                  <input type="file" onChange={e => setFile(e.target.files?.[0] || null)} className="w-full text-sm font-medium cursor-pointer text-zinc-500 dark:text-zinc-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-100 file:text-indigo-700 dark:file:bg-white/10 dark:file:text-zinc-300 hover:file:bg-indigo-200 dark:hover:file:bg-white/20" />
+
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+              <motion.div variants={itemVariants} className="panel p-5 sm:p-6 lg:col-span-1">
+                <h3 className="section-title mb-5">ข้อมูลตั้งต้น</h3>
+
+                <div className="mb-5">
+                  <label htmlFor="resume-file" className="label">ไฟล์เรซูเม่</label>
+                  <div className="rounded-2xl border border-dashed border-brand-300 bg-brand-50/60 p-4 transition hover:bg-brand-50 dark:border-brand-500/30 dark:bg-brand-500/5 dark:hover:bg-brand-500/10">
+                    <input id="resume-file" type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} className="file-input" />
+                    <p className="field-hint">{file ? `เลือกแล้ว: ${file.name}` : 'รองรับไฟล์รูปภาพหรือ PDF ของเรซูเม่'}</p>
+                  </div>
                 </div>
-                <label className="block mb-2 text-xs font-semibold tracking-wide uppercase text-zinc-500 dark:text-zinc-400">ประสบการณ์เพิ่มเติม (Optional)</label>
-                <textarea value={expText} onChange={e => setExpText(e.target.value)} placeholder="เล่าโปรเจกต์หรือผลงานที่โดดเด่น..." className="w-full h-32 p-4 mb-6 text-sm transition-all bg-[#1a1a1a] border outline-none resize-none border-white/10 rounded-2xl focus:border-blue-500 focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400" />
-                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleUpload} disabled={loading} className="w-full py-4 text-sm font-semibold tracking-tight text-white transition-colors shadow-lg bg-zinc-900 dark:bg-white dark:text-black rounded-2xl hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 flex items-center justify-center gap-2">
-                  {loading ? 'กำลังประมวลผลด้วย AI...' : <><IconSparkles /> วิเคราะห์ทักษะ (Extract)</>}
-                </motion.button>
+
+                <div className="mb-6">
+                  <label htmlFor="experience-text" className="label">ประสบการณ์เพิ่มเติม (ไม่บังคับ)</label>
+                  <textarea
+                    id="experience-text"
+                    value={expText}
+                    onChange={(e) => setExpText(e.target.value)}
+                    placeholder="เล่าโปรเจกต์หรือผลงานที่โดดเด่น..."
+                    className="textarea h-32"
+                  />
+                  <p className="field-hint">ระบุงานจริง เช่น งาน freelance หรือระบบที่ขึ้น production เพื่อโอกาสได้เกรด S</p>
+                </div>
+
+                <button type="button" onClick={handleUpload} disabled={loading} className="btn btn-primary btn-lg btn-block">
+                  {loading ? <><Spinner /> กำลังประมวลผลด้วย AI...</> : <><IconSparkles /> วิเคราะห์ทักษะ</>}
+                </button>
               </motion.div>
-              <motion.div variants={itemVariants} className="w-full p-8 border shadow-inner lg:w-2/3 bg-zinc-50/50 dark:bg-[#0f0f0f] rounded-[2rem] border-zinc-200/50 dark:border-white/5">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">ผลการวิเคราะห์ AI</h3>
-                  <span className="px-4 py-1.5 text-xs font-semibold bg-white dark:bg-[#1a1a1a] border border-zinc-200/50 dark:border-white/10 rounded-full shadow-sm">พบ {skills.length} ทักษะ</span>
+
+              <motion.div variants={itemVariants} className="panel bg-surface-2/60 p-5 sm:p-6 lg:col-span-2">
+                <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="section-title">ผลการวิเคราะห์ของ AI</h3>
+                  <span className="badge badge-neutral">พบ {skills.length} ทักษะ</span>
                 </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {skills.length === 0 && !loading && <div className="col-span-2 p-10 font-medium text-center text-zinc-400 dark:text-zinc-500">กรุณาอัปโหลดเรซูเม่เพื่อเริ่มต้น</div>}
-                  {skills.map((s, i) => (
-                    <motion.div key={i} variants={itemVariants} whileHover={{ y: -4 }} className={`flex flex-col justify-between p-5 border rounded-2xl shadow-[0_4px_20px_rgb(0,0,0,0.03)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] ${String(s.grade).toUpperCase() === 'S' ? 'bg-gradient-to-br from-amber-50 via-white to-yellow-50 border-amber-300/80 dark:from-amber-500/15 dark:via-[#161616] dark:to-yellow-500/10 dark:border-amber-400/40' : 'bg-white dark:bg-[#161616] border-white/40 dark:border-white/5'}`}>
-                      <div className="flex items-start justify-between mb-3">
-                        <h4 className="font-bold tracking-tight text-zinc-800 dark:text-zinc-100">{s.name}</h4>
-                        <span className={`px-2.5 py-1 text-[10px] font-black rounded-md ${String(s.grade).toUpperCase() === 'S' ? 'text-amber-950 bg-gradient-to-r from-amber-300 to-yellow-400 border border-amber-400 shadow-sm' : 'text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20'}`}>เกรด {s.grade}</span>
-                      </div>
-                      <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 tracking-wider mb-5 uppercase bg-indigo-50 dark:bg-indigo-500/10 self-start px-2.5 py-1 rounded-md">{s.type || 'Hard Skill'}</span>
-                      <div className="pt-4 mt-auto border-t border-zinc-100 dark:border-white/5"><p className="text-[9px] font-semibold text-zinc-400 mb-1.5 uppercase tracking-widest">Source</p><p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{s.source || 'Resume Data'}</p></div>
-                    </motion.div>
-                  ))}
-                </div>
+
+                {loading && (
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <SkeletonList count={2} rows={2} />
+                    <SkeletonList count={2} rows={2} />
+                  </div>
+                )}
+
+                {!loading && skills.length === 0 && (
+                  <EmptyState
+                    title="ยังไม่มีผลการวิเคราะห์"
+                    description="อัปโหลดเรซูเม่หรือกรอกประสบการณ์ แล้วกดปุ่มวิเคราะห์ทักษะเพื่อเริ่มต้น"
+                  />
+                )}
+
+                {!loading && skills.length > 0 && (
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {skills.map((s, i) => {
+                      const isTop = String(s.grade).toUpperCase() === 'S';
+                      return (
+                        <motion.div
+                          key={i}
+                          variants={itemVariants}
+                          className={`flex flex-col rounded-2xl border p-4 shadow-sm transition hover:shadow-md sm:p-5 ${isTop ? 'border-amber-300 bg-amber-50 dark:border-amber-400/40 dark:bg-amber-500/10' : 'border-line bg-surface'}`}
+                        >
+                          <div className="mb-3 flex items-start justify-between gap-3">
+                            <h4 className="card-title">{s.name}</h4>
+                            <span className={`badge ${isTop ? 'badge-warning' : 'badge-neutral'} shrink-0`}>เกรด {s.grade}</span>
+                          </div>
+                          <span className="badge badge-brand self-start">{s.type || 'Hard Skill'}</span>
+                          <div className="divider mt-4 pt-3">
+                            <p className="eyebrow">แหล่งข้อมูล</p>
+                            <p className="mt-1 text-sm text-ink-muted">{s.source || 'ข้อมูลจากเรซูเม่'}</p>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                )}
               </motion.div>
             </div>
           </motion.div>
         )}
 
+        {/* ---------- Job discovery ---------- */}
         {activeMenu === '2' && (
-          <motion.div key="menu2" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="flex flex-col items-center max-w-xl mx-auto">
-            <motion.div variants={itemVariants} className="mb-10 text-center">
-              <h2 className="mb-2 text-3xl font-extrabold tracking-tighter text-zinc-900 dark:text-zinc-100">Job Discovery</h2>
-              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">ปัดขวาเพื่อสมัคร ปัดซ้ายเพื่อข้าม</p>
+          <motion.div key="menu2" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="mx-auto flex w-full max-w-xl flex-col items-center">
+            <motion.div variants={itemVariants} className="mb-8 text-center">
+              <h2 className="page-title">ค้นหาที่ฝึกงาน</h2>
+              <p className="page-subtitle">กดปุ่ม ✓ เพื่อสมัคร หรือ ✕ เพื่อข้ามตำแหน่งนี้</p>
             </motion.div>
+
             {matchedJobs.length === 0 ? (
-              <motion.div variants={itemVariants} className="w-full p-12 text-center bg-white/70 dark:bg-[#121212] backdrop-blur-xl border shadow-sm rounded-[2rem] border-zinc-200/50 dark:border-white/5">
-                <div className="flex justify-center mb-4 text-zinc-400"><IconSparkles /></div>
-                <p className="mb-2 text-lg font-semibold tracking-tight text-zinc-800 dark:text-zinc-100">ไม่มีตำแหน่งงานที่รอพิจารณา</p>
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">คุณได้พิจารณางานทั้งหมดแล้ว หรือลองให้ AI สกัดทักษะใหม่อีกครั้งที่หน้าแรก</p>
+              <motion.div variants={itemVariants} className="panel w-full p-8 sm:p-12">
+                <EmptyState
+                  icon={<IconSparkles />}
+                  title="ไม่มีตำแหน่งงานที่รอพิจารณา"
+                  description="คุณได้พิจารณางานทั้งหมดแล้ว หรือลองให้ AI สกัดทักษะใหม่อีกครั้ง"
+                  action={<button type="button" onClick={() => setActiveMenu('1')} className="btn btn-brand-soft btn-sm">ไปหน้าสกัดทักษะ</button>}
+                />
               </motion.div>
             ) : (
-              <motion.div animate={{ x: swipeDirection === 'right' ? 300 : swipeDirection === 'left' ? -300 : 0, rotate: swipeDirection === 'right' ? 12 : swipeDirection === 'left' ? -12 : 0, opacity: swipeDirection ? 0 : 1 }} transition={{ duration: 0.3, ease: "easeInOut" }} className="bg-white/90 dark:bg-[#111111] backdrop-blur-2xl border border-white dark:border-white/10 shadow-[0_20px_40px_-15px_rgba(0,0,0,0.1)] rounded-[2rem] p-8 w-full max-w-md relative mb-10">
-                <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-zinc-900 dark:bg-white text-white dark:text-black px-5 py-1.5 rounded-full text-xs font-bold shadow-lg whitespace-nowrap">Match Score {matchedJobs[0].match_percentage}%</div>
-                <div className="mt-6 mb-8 text-center"><h3 className="m-0 text-2xl font-black leading-tight tracking-tight text-zinc-900 dark:text-white">{matchedJobs[0].job_title}</h3><p className="m-0 mt-2 text-sm font-semibold text-indigo-600 dark:text-indigo-400">{matchedJobs[0].company}</p></div>
-                <div className="p-5 mb-6 text-center border bg-zinc-50/80 dark:bg-white/5 rounded-2xl border-zinc-100 dark:border-white/5">
-                  <span className="block mb-4 text-xs font-semibold tracking-wide uppercase text-zinc-500 dark:text-zinc-400">ทักษะที่ตรงกับความต้องการ</span>
-                  <div className="flex flex-wrap justify-center gap-2">{(matchedJobs[0].matched_skills || []).map((s,i) => (<span key={i} className="bg-white dark:bg-white/10 border border-zinc-200 dark:border-white/5 text-zinc-700 dark:text-zinc-300 px-3 py-1.5 rounded-lg text-xs font-medium shadow-sm">✓ {s}</span>))}</div>
+              <motion.div
+                animate={{
+                  x: swipeDirection === 'right' ? 280 : swipeDirection === 'left' ? -280 : 0,
+                  rotate: swipeDirection === 'right' ? 10 : swipeDirection === 'left' ? -10 : 0,
+                  opacity: swipeDirection ? 0 : 1,
+                }}
+                transition={{ duration: 0.3, ease: 'easeInOut' }}
+                className="relative w-full max-w-md rounded-3xl border border-line bg-surface p-5 shadow-lg sm:p-8"
+              >
+                <span className="absolute -top-3.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white shadow-md">
+                  ความตรงกัน {matchedJobs[0].match_percentage}%
+                </span>
+
+                <div className="mb-6 mt-4 text-center">
+                  <h3 className="text-xl font-bold leading-snug text-ink sm:text-2xl">{matchedJobs[0].job_title}</h3>
+                  <p className="mt-2 text-sm font-semibold text-brand-600 dark:text-brand-400">{matchedJobs[0].company}</p>
                 </div>
+
+                <div className="card-soft mb-5 p-4 text-center sm:p-5">
+                  <p className="eyebrow mb-3">ทักษะที่ตรงกับความต้องการ</p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {(matchedJobs[0].matched_skills || []).map((s, i) => (
+                      <span key={i} className="chip">✓ {s}</span>
+                    ))}
+                  </div>
+                </div>
+
                 {(matchedJobs[0].missing_skills || []).length > 0 && (
-                  <div className="p-5 mb-8 text-white border shadow-inner bg-zinc-900/95 dark:bg-[#0a0a0a] backdrop-blur-md border-zinc-800 dark:border-white/5 rounded-2xl">
-                    <p className="mb-2 text-xs font-bold tracking-wide uppercase text-amber-400 flex items-center gap-2"><IconAlert /> AI Skill Gap Analysis</p>
-                    <p className="m-0 text-xs font-medium leading-relaxed text-zinc-300 dark:text-zinc-400">คุณควรพิจารณาศึกษา <strong>{matchedJobs[0].missing_skills[0]}</strong> เพิ่มเติม เนื่องจากเป็นทักษะสำคัญที่ตำแหน่งนี้ต้องการ</p>
+                  <div className="alert alert-warning mb-6 flex-col items-start">
+                    <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide"><IconAlert /> AI Skill Gap Analysis</p>
+                    <p className="text-sm">
+                      คุณควรพิจารณาศึกษา <strong>{matchedJobs[0].missing_skills[0]}</strong> เพิ่มเติม
+                      เนื่องจากเป็นทักษะสำคัญที่ตำแหน่งนี้ต้องการ
+                    </p>
                   </div>
                 )}
-                <div className="flex justify-center gap-6 mt-4">
-                  <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }} onClick={() => handleSwipe('pass', matchedJobs[0])} className="flex items-center justify-center w-16 h-16 text-2xl text-red-500 transition-colors bg-white dark:bg-[#1a1a1a] border border-zinc-200 dark:border-white/10 rounded-full shadow-lg hover:bg-red-50">✕</motion.button>
-                  <motion.button whileHover={{ scale: 1.1, boxShadow: "0 10px 25px -5px rgba(79,70,229,0.4)" }} whileTap={{ scale: 0.95 }} onClick={() => handleSwipe('apply', matchedJobs[0])} className="flex items-center justify-center w-16 h-16 text-2xl text-white transition-shadow bg-indigo-600 rounded-full shadow-lg dark:bg-indigo-500">✓</motion.button>
+
+                <div className="flex justify-center gap-5 sm:gap-6">
+                  <motion.button
+                    type="button"
+                    whileTap={{ scale: 0.94 }}
+                    onClick={() => handleSwipe('pass', matchedJobs[0])}
+                    className="flex h-16 w-16 items-center justify-center rounded-full border border-line bg-surface text-2xl text-rose-500 shadow-md transition hover:bg-rose-50 focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-bg dark:hover:bg-rose-500/10"
+                    aria-label="ข้ามตำแหน่งนี้"
+                  >
+                    ✕
+                  </motion.button>
+                  <motion.button
+                    type="button"
+                    whileTap={{ scale: 0.94 }}
+                    onClick={() => handleSwipe('apply', matchedJobs[0])}
+                    className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-600 text-2xl text-white shadow-lg shadow-brand-600/30 transition hover:bg-brand-700 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                    aria-label="สมัครตำแหน่งนี้"
+                  >
+                    ✓
+                  </motion.button>
                 </div>
               </motion.div>
             )}
           </motion.div>
         )}
 
+        {/* ---------- Application history ---------- */}
         {activeMenu === '3' && (
-          <motion.div key="menu3" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="w-full max-w-6xl mx-auto">
-            <motion.div variants={itemVariants} className="flex items-center justify-between mb-8"><div><h2 className="text-3xl font-extrabold tracking-tighter text-zinc-900 dark:text-zinc-100">Application History</h2><p className="mt-1 text-sm font-medium text-zinc-500 dark:text-zinc-400">ประวัติการสมัครงานและสมุดบันทึกสหกิจ</p></div></motion.div>
-            
-            <motion.div variants={containerVariants}>
-              {myApps.length === 0 ? <p className="pl-2 font-medium text-zinc-400 dark:text-zinc-500">ยังไม่มีประวัติการสมัครงาน</p> : 
-                myApps.map((app, idx) => (
-                <motion.div variants={itemVariants} key={idx} className="p-6 mb-5 bg-white/60 dark:bg-[#161616] backdrop-blur-md border shadow-sm border-zinc-200/60 dark:border-white/5 rounded-[1.5rem]">
-                  <div className="flex flex-col items-start justify-between gap-5 md:flex-row md:items-center">
-                    <div>
-                      <h3 className="m-0 text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-100">{app.job_title}</h3>
-                      <p className="m-0 mt-1 text-sm font-medium text-zinc-500 dark:text-zinc-400">{app.company}</p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      {app.status === 'Pending' && <span className="bg-amber-500/10 dark:bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 px-4 py-1.5 rounded-full text-xs font-semibold">รอพิจารณา</span>}
-                      {app.status === 'Rejected' && <span className="bg-rose-500/10 dark:bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-400 px-4 py-1.5 rounded-full text-xs font-semibold">ไม่ผ่านการพิจารณา</span>}
-                      {app.status === 'Canceled' && <span className="bg-zinc-500/10 dark:bg-zinc-500/10 border border-zinc-500/20 text-zinc-700 dark:text-zinc-400 px-4 py-1.5 rounded-full text-xs font-semibold">สละสิทธิ์แล้ว</span>}
-                      {app.status === 'Completed' && <span className="bg-blue-500/10 dark:bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-400 px-4 py-1.5 rounded-full text-xs font-semibold">ประเมินผลแล้ว</span>}
-                      {app.status === 'Matched' && (
-                        <>
-                          <span className="bg-emerald-500/10 dark:bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 px-4 py-1.5 rounded-full text-xs font-semibold mr-2">MATCHED</span>
-                          <button onClick={() => { setCancelReason(''); setCancelModal({ show: true, appId: app.id, companyName: app.company }); }} className="px-4 py-2 text-xs font-semibold text-rose-700 transition-colors border border-rose-200 dark:text-rose-300 bg-rose-50 dark:bg-rose-500/10 rounded-xl hover:bg-rose-100 mr-2">สละสิทธิ์</button>
-                          <button onClick={() => setActiveChatId(activeChatId === app.id ? null : app.id)} className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white transition-colors shadow-sm dark:text-black rounded-xl bg-zinc-900 dark:bg-white hover:bg-zinc-800"><IconChat /> บริษัท</button>
-                          <button onClick={() => generateAI('email', app)} className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-indigo-700 transition-colors border border-indigo-200 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-500/10 rounded-xl hover:bg-indigo-100"><IconSparkles /> ร่างอีเมล</button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <AnimatePresence>
-                    {activeChatId && (activeChatId === app.id || activeChatId === `${app.id}-TS`) && (
-                      <motion.div initial={{ height: 0, opacity: 0, marginTop: 0 }} animate={{ height: 'auto', opacity: 1, marginTop: 24 }} exit={{ height: 0, opacity: 0, marginTop: 0 }} className="overflow-hidden border shadow-inner border-zinc-200 dark:border-white/5 rounded-2xl bg-zinc-50/50 dark:bg-[#0a0a0a]">
-                        <div className="flex items-center justify-between px-5 py-3 text-xs font-semibold tracking-wide uppercase border-b text-zinc-600 dark:text-zinc-400 bg-zinc-100/80 dark:bg-white/5 border-zinc-200 dark:border-white/5">
-                          สนทนากับ: {activeChatId === app.id ? `HR ${app.company}` : 'อาจารย์ที่ปรึกษา'}
-                        </div>
-                        <div className="flex flex-col h-56 p-5 space-y-3 overflow-y-auto bg-white/50 dark:bg-transparent">
-                          {chatMessages.map(m => (
-                            <div key={m.id} className={`max-w-[75%] p-3.5 rounded-2xl text-sm shadow-sm ${m.sender === 'student' ? 'bg-zinc-900 dark:bg-white text-white dark:text-black ml-auto rounded-br-sm' : 'bg-white dark:bg-[#1a1a1a] text-zinc-800 dark:text-zinc-200 mr-auto rounded-bl-sm border border-zinc-200 dark:border-white/5'}`}>
-                              <p className="m-0 font-medium leading-relaxed">{m.text}</p>
-                            </div>
-                          ))}
-                        </div>
-                        <form onSubmit={handleSendChat} className="flex gap-3 p-3 bg-white border-t dark:bg-[#121212] border-zinc-200 dark:border-white/5">
-                          <input type="text" value={typedMessage} onChange={e=>setTypedMessage(e.target.value)} placeholder="พิมพ์ข้อความ..." className="flex-1 px-4 py-2.5 text-sm transition-all border outline-none bg-[#1a1a1a] border-white/10 text-white placeholder-gray-400 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-500" />
-                          <button type="submit" className="px-5 py-2.5 bg-zinc-900 dark:bg-white text-white dark:text-black text-sm font-semibold rounded-xl">ส่ง</button>
-                        </form>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  <AnimatePresence>
-                    {aiContent[app.id] && (
-                      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`mt-5 p-6 border rounded-2xl shadow-sm ${aiContent[app.id].type === 'email' ? 'bg-indigo-50/30 dark:bg-indigo-500/5 border-indigo-100' : 'bg-purple-50/30 dark:bg-purple-500/5 border-purple-100'}`}>
-                        <div className="flex items-center justify-between mb-4">
-                          <h4 className={`font-bold tracking-tight text-sm m-0 ${aiContent[app.id].type === 'email' ? 'text-indigo-700 dark:text-indigo-400' : 'text-purple-700 dark:text-purple-400'}`}>
-                            {aiContent[app.id].type === 'email' ? 'ฉบับร่างอีเมลสมัครงาน' : 'คลังคำถามจำลองสัมภาษณ์'}
-                          </h4>
-                          {aiContent[app.id].type === 'email' && !aiLoading && <button onClick={() => {navigator.clipboard.writeText(aiContent[app.id].data); showToast('คัดลอกลงคลิปบอร์ดแล้ว!', 'info');}} className="px-4 py-1.5 bg-white dark:bg-[#1a1a1a] border border-indigo-200 text-indigo-700 rounded-lg text-xs font-semibold shadow-sm hover:bg-indigo-50">คัดลอก</button>}
-                        </div>
-                        <div className="p-6 text-sm leading-relaxed whitespace-pre-line bg-white dark:bg-[#0a0a0a] border shadow-sm text-zinc-700 dark:text-zinc-300 rounded-xl border-zinc-100">
-                          {aiContent[app.id].data}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </motion.div>
-              ))}
+          <motion.div key="menu3" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="w-full">
+            <motion.div variants={itemVariants}>
+              <PageHeading title="ประวัติการสมัครงาน" subtitle="ติดตามสถานะใบสมัครและติดต่อบริษัทที่ตอบรับคุณ" />
             </motion.div>
 
+            {appsLoading && <SkeletonList count={3} />}
+
+            {!appsLoading && myApps.length === 0 && (
+              <EmptyState
+                title="ยังไม่มีประวัติการสมัครงาน"
+                description="เริ่มค้นหาตำแหน่งที่เหมาะกับทักษะของคุณได้เลย"
+                action={<button type="button" onClick={() => setActiveMenu('2')} className="btn btn-primary btn-sm">ไปหน้าค้นหาที่ฝึกงาน</button>}
+              />
+            )}
+
+            {!appsLoading && (
+              <motion.div variants={containerVariants} className="space-y-4">
+                {myApps.map((app, idx) => {
+                  const badge = STATUS_BADGE[app.status] || { cls: 'badge-neutral', label: app.status };
+                  return (
+                    <motion.div variants={itemVariants} key={app.id || idx} className="card card-pad">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0">
+                          <h3 className="text-base font-bold text-ink sm:text-lg">{app.job_title}</h3>
+                          <p className="mt-1 text-sm text-ink-muted">{app.company}</p>
+                          <span className={`badge ${badge.cls} mt-3`}>{badge.label}</span>
+                        </div>
+
+                        {app.status === 'Matched' && (
+                          <div className="flex flex-wrap gap-2 lg:justify-end">
+                            <button
+                              type="button"
+                              onClick={() => setActiveChatId(activeChatId === app.id ? null : app.id)}
+                              className="btn btn-neutral btn-sm"
+                              aria-expanded={activeChatId === app.id}
+                            >
+                              <IconChat /> คุยกับบริษัท
+                            </button>
+                            <button type="button" onClick={() => generateAI('email', app)} className="btn btn-brand-soft btn-sm">
+                              <IconSparkles /> ร่างอีเมล
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setCancelReason(''); setCancelModal({ show: true, appId: app.id, companyName: app.company }); }}
+                              className="btn btn-danger-soft btn-sm"
+                            >
+                              สละสิทธิ์
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <AnimatePresence>
+                        {activeChatId && (activeChatId === app.id || activeChatId === `${app.id}-TS`) && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                            animate={{ height: 'auto', opacity: 1, marginTop: 20 }}
+                            exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                            className="overflow-hidden rounded-2xl border border-line"
+                          >
+                            <div className="border-b border-line bg-surface-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                              สนทนากับ: {activeChatId === app.id ? `HR ${app.company}` : 'อาจารย์ที่ปรึกษา'}
+                            </div>
+                            <div className="chat-window h-56">
+                              {chatMessages.length === 0
+                                ? <p className="my-auto text-center text-sm text-ink-muted">เริ่มพิมพ์ข้อความเพื่อสนทนา...</p>
+                                : chatMessages.map((m) => (
+                                  <div key={m.id} className={`bubble ${m.sender === 'student' ? 'bubble-me' : 'bubble-them'}`}>
+                                    <p>{m.text}</p>
+                                  </div>
+                                ))}
+                            </div>
+                            <form onSubmit={handleSendChat} className="flex gap-2 border-t border-line bg-surface p-3">
+                              <label htmlFor={`chat-${app.id}`} className="sr-only">ข้อความ</label>
+                              <input id={`chat-${app.id}`} type="text" value={typedMessage} onChange={(e) => setTypedMessage(e.target.value)} placeholder="พิมพ์ข้อความ..." className="input py-2.5" />
+                              <button type="submit" disabled={!typedMessage.trim()} className="btn btn-neutral btn-sm shrink-0">ส่ง</button>
+                            </form>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      <AnimatePresence>
+                        {aiContent[app.id] && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="mt-5 rounded-2xl border border-brand-200 bg-brand-50/60 p-4 sm:p-5 dark:border-brand-500/25 dark:bg-brand-500/5"
+                          >
+                            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                              <h4 className="card-title text-brand-700 dark:text-brand-300">
+                                {aiContent[app.id].type === 'email' ? 'ฉบับร่างอีเมลสมัครงาน' : 'คลังคำถามจำลองสัมภาษณ์'}
+                              </h4>
+                              {aiContent[app.id].type === 'email' && !aiLoading && (
+                                <button
+                                  type="button"
+                                  onClick={() => { navigator.clipboard.writeText(aiContent[app.id].data); showToast('คัดลอกลงคลิปบอร์ดแล้ว!', 'info'); }}
+                                  className="btn btn-outline btn-xs"
+                                >
+                                  คัดลอก
+                                </button>
+                              )}
+                            </div>
+                            <div className="rounded-xl border border-line bg-surface p-4 text-sm leading-relaxed text-ink sm:p-5">
+                              {aiLoading
+                                ? <span className="flex items-center gap-2 text-ink-muted"><Spinner /> กำลังวิเคราะห์และประมวลผลด้วย AI...</span>
+                                : <p className="whitespace-pre-line">{aiContent[app.id].data}</p>}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </motion.div>
+                  );
+                })}
+              </motion.div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

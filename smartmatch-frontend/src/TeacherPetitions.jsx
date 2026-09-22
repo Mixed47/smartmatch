@@ -1,8 +1,9 @@
 import { apiJson, friendlyApiError } from './apiClient';
+import { EmptyState, Spinner } from './ui';
 
 const TYPE_LABELS = {
   waiver: 'สละสิทธิ์',
-  transfer: 'เปลี่ยนที่',
+  transfer: 'เปลี่ยนสถานที่ฝึกงาน',
   leave: 'ลางาน',
   cancel: 'สละสิทธิ์',
 };
@@ -22,48 +23,55 @@ function petitionReason(petition) {
 
 export default function TeacherPetitions({ petitions, resolvingId, onResolve }) {
   return (
-    <div className="overflow-hidden mb-10 bg-white/70 dark:bg-[#121212] backdrop-blur-xl border shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:shadow-none rounded-[2rem] border-indigo-200/80 dark:border-indigo-900/40">
-      <div className="flex items-center justify-between px-8 py-6 border-b border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/50 dark:bg-indigo-950/20">
-        <h3 className="flex items-center gap-2 m-0 text-sm font-bold tracking-wide uppercase text-indigo-800 dark:text-indigo-300">
-          Petition Management ({petitions.length})
+    <section className="panel mb-8 border-brand-200 dark:border-brand-900/50" aria-labelledby="petition-management-title">
+      <div className="panel-header border-brand-200 bg-brand-50 dark:border-brand-900/50 dark:bg-brand-950/20">
+        <h3 id="petition-management-title" className="section-title text-brand-800 dark:text-brand-300">
+          คำร้องที่รอพิจารณา
         </h3>
+        <span className={`badge ${petitions.length > 0 ? 'badge-brand' : 'badge-neutral'}`}>{petitions.length} รายการ</span>
       </div>
-      <div className="p-6 space-y-4">
+
+      <div className="panel-body">
         {petitions.length === 0 ? (
-          <p className="py-8 m-0 font-medium text-center text-zinc-400 dark:text-zinc-500">ไม่มีคำร้องที่รออนุมัติในขณะนี้</p>
-        ) : petitions.map((petition) => (
-          <div key={petition.id} className="p-5 border bg-white dark:bg-[#161616] border-indigo-200/50 dark:border-indigo-900/30 rounded-2xl flex flex-col xl:flex-row xl:items-center justify-between gap-4 shadow-sm">
-            <div>
-              <h4 className="m-0 text-lg font-bold text-zinc-900 dark:text-zinc-100">{petition.student_name || 'นักศึกษา'}</h4>
-              <p className="m-0 mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                ประเภทคำร้อง: <span className="font-bold text-indigo-600 dark:text-indigo-400">{typeLabel(petition.type)}</span>
-              </p>
-              <p className="p-3 mt-3 text-sm border bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-100 dark:border-indigo-900/50 rounded-xl text-indigo-900 dark:text-indigo-200">
-                <strong>เหตุผล:</strong> {petitionReason(petition) || '-'}
-              </p>
+          <EmptyState title="ไม่มีคำร้องที่รออนุมัติ" description="คำร้องใหม่จากนักศึกษาจะปรากฏที่นี่ทันที" />
+        ) : petitions.map((petition) => {
+          const busy = resolvingId === petition.id;
+          return (
+            <div key={petition.id} className="card card-pad">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div className="min-w-0 flex-1">
+                  <h4 className="text-base font-bold text-ink sm:text-lg">{petition.student_name || 'นักศึกษา'}</h4>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    ประเภทคำร้อง: <span className="font-semibold text-brand-600 dark:text-brand-400">{typeLabel(petition.type)}</span>
+                  </p>
+                  <p className="alert alert-info mt-3"><strong>เหตุผล:</strong> {petitionReason(petition) || '-'}</p>
+                </div>
+
+                <div className="flex flex-wrap gap-2 xl:justify-end">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onResolve(petition.id, 'Rejected')}
+                    className="btn btn-outline btn-sm"
+                  >
+                    ปฏิเสธคำร้อง
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onResolve(petition.id, 'Approved')}
+                    className="btn btn-success btn-sm"
+                  >
+                    {busy && <Spinner />}
+                    {busy ? 'กำลังบันทึก...' : 'อนุมัติคำร้อง'}
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={resolvingId === petition.id}
-                onClick={() => onResolve(petition.id, 'Rejected')}
-                className="px-4 py-2 text-xs font-semibold text-zinc-700 bg-white border border-zinc-200 rounded-xl dark:bg-[#1a1a1a] dark:text-zinc-300 dark:border-white/10 hover:bg-zinc-50 disabled:opacity-60"
-              >
-                ❌ ปฏิเสธ (Reject)
-              </button>
-              <button
-                type="button"
-                disabled={resolvingId === petition.id}
-                onClick={() => onResolve(petition.id, 'Approved')}
-                className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 rounded-xl shadow-md hover:bg-emerald-700 disabled:opacity-60"
-              >
-                ✅ อนุมัติ (Approve)
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
-    </div>
+    </section>
   );
 }
 

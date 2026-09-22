@@ -3,6 +3,7 @@ import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { CancelRequest, Evaluation, Petition } from './types';
 import { apiJson, friendlyApiError } from './apiClient';
 import TeacherPetitions, { petitionError, resolveTeacherPetition } from './TeacherPetitions';
+import { EmptyState, PageHeading, SkeletonList, Spinner } from './ui';
 
 interface Application { id: string; name: string; job_title: string; company: string; status: string; }
 interface Message { id: number; application_id: string; sender: string; text: string; created_at: string; }
@@ -19,25 +20,34 @@ interface CriticalLogbook {
   feedback?: string;
 }
 
-// Premium Icons
-const IconChat = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.436 3 11.996c0 2.29.932 4.35 2.44 5.86l-1.92 2.91a.75.75 0 00.91 1.09l3.22-1.39a9.123 9.123 0 004.35 1.034z" /></svg>;
-const IconClipboard = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>;
-const IconTrophy = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M18.75 4.236c.982.143 1.954.317 2.916.52a6.003 6.003 0 01-5.395 4.972m0 0a8.001 8.001 0 00-10.522 0m10.522 0a7.494 7.494 0 01-1.04 3.172M7.73 9.728a7.494 7.494 0 001.04 3.172m0 0h6.458" /></svg>;
+const IconChat = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.436 3 11.996c0 2.29.932 4.35 2.44 5.86l-1.92 2.91a.75.75 0 00.91 1.09l3.22-1.39a9.123 9.123 0 004.35 1.034z" /></svg>;
+const IconClipboard = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>;
+const IconTrophy = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-5 w-5"><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M18.75 4.236c.982.143 1.954.317 2.916.52a6.003 6.003 0 01-5.395 4.972m0 0a8.001 8.001 0 00-10.522 0m10.522 0a7.494 7.494 0 01-1.04 3.172M7.73 9.728a7.494 7.494 0 001.04 3.172m0 0h6.458" /></svg>;
+const IconWarning = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-5 w-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>;
 
-const containerVariants: Variants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.1 } } };
-const itemVariants: Variants = { hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 100, damping: 15 } } };
+const containerVariants: Variants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.08 } } };
+const itemVariants: Variants = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 110, damping: 16 } } };
 const formatThaiDate = (dateString: string) => { if (!dateString) return ''; return new Date(dateString).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' }); };
+
+const STATUS_BADGE: Record<string, { cls: string; label: string }> = {
+  Matched: { cls: 'badge-success', label: 'Matched' },
+  Canceled: { cls: 'badge-neutral', label: 'สละสิทธิ์แล้ว' },
+  Completed: { cls: 'badge-info', label: 'ประเมินผลแล้ว' },
+  Rejected: { cls: 'badge-danger', label: 'ไม่ผ่าน' },
+  Pending: { cls: 'badge-warning', label: 'รอพิจารณา' },
+};
 
 export default function Teacher({ activeMenu, showToast }: { activeMenu?: string; setActiveMenu?: (m: string) => void; showToast?: (msg: string, type: 'success' | 'error' | 'info') => void; }) {
   const [applications, setApplications] = useState<Application[]>([]);
   const [cancelRequests, setCancelRequests] = useState<CancelRequest[]>([]);
   const [petitions, setPetitions] = useState<Petition[]>([]);
-  const [resolvingPetitionId, setResolvingPetitionId] = useState<number | null>(null); 
+  const [resolvingPetitionId, setResolvingPetitionId] = useState<number | null>(null);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const [typedMessage, setTypedMessage] = useState('');
   const [logs, setLogs] = useState<Logbook[]>([]);
+  const [dataLoading, setDataLoading] = useState(true);
   const [criticalLogs, setCriticalLogs] = useState<CriticalLogbook[]>([]);
   const [criticalLoading, setCriticalLoading] = useState(true);
   const [criticalError, setCriticalError] = useState('');
@@ -77,7 +87,10 @@ export default function Teacher({ activeMenu, showToast }: { activeMenu?: string
       apiJson('/api/petitions').then((data) => setPetitions(Array.isArray(data) ? data : [])),
       apiJson('/api/evaluations').then((data) => setEvaluations(data || [])),
       loadCriticalAlerts(false),
-    ]).then(() => setLoadError('')).catch((err) => setLoadError(friendlyApiError(err, 'โหลดข้อมูลอาจารย์ไม่สำเร็จ')));
+    ])
+      .then(() => setLoadError(''))
+      .catch((err) => setLoadError(friendlyApiError(err, 'โหลดข้อมูลอาจารย์ไม่สำเร็จ')))
+      .finally(() => setDataLoading(false));
   };
 
   const handleAcknowledge = async (id: number) => {
@@ -97,10 +110,10 @@ export default function Teacher({ activeMenu, showToast }: { activeMenu?: string
     }
   };
 
-  useEffect(() => { 
+  useEffect(() => {
     loadCriticalAlerts(true);
-    loadData(); 
-    const interval = setInterval(loadData, 3000); 
+    loadData();
+    const interval = setInterval(loadData, 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -146,8 +159,10 @@ export default function Teacher({ activeMenu, showToast }: { activeMenu?: string
     }
   };
 
+  const studentLogsOf = (studentName: string) => logs.filter((l) => l.name.includes(studentName.split(' ')[0]));
+
   const generateTeacherHeatmap = (studentName: string) => {
-    const days = []; const today = new Date(); const studentLogs = logs.filter(l => l.name.includes(studentName.split(' ')[0])); 
+    const days = []; const today = new Date(); const studentLogs = studentLogsOf(studentName);
     for (let i = 29; i >= 0; i--) {
       const d = new Date(today); d.setDate(today.getDate() - i); const dateStr = d.toISOString().split('T')[0];
       days.push({ date: dateStr, hasLog: studentLogs.some(log => log.date === dateStr || log.created_at === dateStr) });
@@ -155,102 +170,117 @@ export default function Teacher({ activeMenu, showToast }: { activeMenu?: string
     return days;
   };
 
-  const checkIssues = (studentName: string) => { return logs.filter(l => l.name.includes(studentName.split(' ')[0])).some(log => log.blocker && log.blocker.trim() !== ''); };
+  const checkIssues = (studentName: string) => studentLogsOf(studentName).some((log) => log.blocker && log.blocker.trim() !== '');
 
   const total = new Set(applications.map(a => a.name)).size;
   const matched = applications.filter(a => a.status === 'Matched' || a.status === 'Completed').length;
   const pending = petitions.length + cancelRequests.length;
-  const petitionsFocus = activeMenu === 'teacher-petitions'; 
+  const petitionsFocus = activeMenu === 'teacher-petitions';
 
   return (
-    <div className="relative w-full pb-20 transition-colors duration-500 text-zinc-900 dark:text-zinc-100">
-      {loadError && (
-        <div className="max-w-6xl mx-auto mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-300">
-          {loadError}
-        </div>
-      )}
+    <div className="relative w-full text-ink">
+      {loadError && <div className="alert alert-danger mb-6" role="alert">{loadError}</div>}
+
       <AnimatePresence mode="wait">
-        <motion.div key="teacher-dashboard" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="w-full max-w-6xl mx-auto">
-          
-          <motion.div variants={itemVariants} className="flex flex-col gap-4 mb-10 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-5">
-              <div><h2 className="m-0 text-3xl font-extrabold tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-zinc-900 to-zinc-600 dark:from-white dark:to-zinc-400">{petitionsFocus ? 'Petition Management' : 'Monitoring Dashboard'}</h2><p className="m-0 mt-1 text-sm font-medium tracking-wide text-zinc-500 dark:text-zinc-400">{petitionsFocus ? 'อนุมัติหรือปฏิเสธคำร้องของนักศึกษา' : 'ระบบติดตามและอนุมัติการฝึกงาน'}</p></div>
-            </div>
+        <motion.div key="teacher-dashboard" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="w-full">
+
+          <motion.div variants={itemVariants}>
+            <PageHeading
+              title={petitionsFocus ? 'จัดการคำร้อง' : 'ติดตามนักศึกษา'}
+              subtitle={petitionsFocus ? 'อนุมัติหรือปฏิเสธคำร้องของนักศึกษา' : 'ระบบติดตามและอนุมัติการฝึกงานของนักศึกษาในความดูแล'}
+              eyebrow="Teacher Module"
+            />
           </motion.div>
 
+          {/* ---------- Critical AI alerts ---------- */}
           {!petitionsFocus && (
-          <motion.div variants={itemVariants} className="overflow-hidden mb-10 bg-gradient-to-br from-orange-50 via-rose-50 to-amber-50 dark:from-orange-950/40 dark:via-rose-950/30 dark:to-amber-950/20 backdrop-blur-xl border shadow-[0_8px_30px_rgb(251,146,60,0.12)] dark:shadow-none rounded-[2rem] border-orange-300/80 dark:border-orange-700/50">
-            <div className="flex items-center justify-between px-8 py-6 border-b border-orange-200/80 dark:border-orange-800/50 bg-orange-100/60 dark:bg-orange-950/40">
-              <h3 className="flex items-center gap-2 m-0 text-sm font-bold tracking-wide uppercase text-orange-900 dark:text-orange-300">⚠️ แจ้งเตือนปัญหาด่วนจากนักศึกษา (Critical Alerts)</h3>
-              {!criticalLoading && !criticalError && (
-                <span className="px-3 py-1 text-[10px] font-black tracking-widest uppercase rounded-full bg-rose-600 text-white">{criticalLogs.length}</span>
-              )}
-            </div>
-            <div className="p-6 space-y-4">
-              {criticalLoading && (
-                <div className="space-y-3">
-                  <div className="h-28 animate-pulse rounded-2xl bg-orange-200/60 dark:bg-orange-900/30" />
-                  <div className="h-28 animate-pulse rounded-2xl bg-orange-200/40 dark:bg-orange-900/20" />
-                  <p className="m-0 text-sm font-medium text-center text-orange-700 dark:text-orange-300">กำลังโหลดแจ้งเตือนปัญหาด่วน...</p>
-                </div>
-              )}
-              {!criticalLoading && criticalError && (
-                <div className="p-5 border rounded-2xl bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800">
-                  <p className="m-0 text-sm font-medium text-rose-700 dark:text-rose-300">{criticalError}</p>
-                  <button type="button" onClick={() => loadCriticalAlerts(true)} className="mt-3 px-4 py-2 text-xs font-semibold text-white bg-rose-600 rounded-xl hover:bg-rose-700">ลองใหม่</button>
-                </div>
-              )}
-              {!criticalLoading && !criticalError && criticalLogs.length === 0 && (
-                <p className="py-6 m-0 font-medium text-center text-orange-700/80 dark:text-orange-300/80">ไม่มีปัญหาด่วนที่รอรับทราบในขณะนี้</p>
-              )}
-              {!criticalLoading && !criticalError && (
-                <AnimatePresence>
-                  {criticalLogs.map((alert) => (
-                    <motion.div
-                      key={alert.id}
-                      layout
-                      initial={{ opacity: 0, y: 12 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.96, height: 0, marginBottom: 0 }}
-                      className="p-5 border bg-white dark:bg-[#1a1010] border-rose-200/80 dark:border-rose-800/50 rounded-2xl shadow-sm"
-                    >
-                      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-3 mb-2">
-                            <h4 className="m-0 text-lg font-bold text-zinc-900 dark:text-zinc-100">{studentAlertName(alert)}</h4>
-                            <span className="px-3 py-1 rounded-md text-[9px] font-black tracking-widest uppercase border bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20">Critical</span>
+            <motion.section variants={itemVariants} className="panel mb-8 border-orange-300/80 dark:border-orange-700/50" aria-labelledby="critical-alerts-title">
+              <div className="panel-header border-orange-200 bg-orange-50 dark:border-orange-800/50 dark:bg-orange-950/30">
+                <h3 id="critical-alerts-title" className="section-title flex items-center gap-2 text-orange-900 dark:text-orange-300">
+                  <IconWarning /> แจ้งเตือนปัญหาด่วนจากนักศึกษา
+                </h3>
+                {!criticalLoading && !criticalError && (
+                  <span className={`badge ${criticalLogs.length > 0 ? 'badge-danger' : 'badge-neutral'}`}>{criticalLogs.length} รายการ</span>
+                )}
+              </div>
+
+              <div className="panel-body">
+                {criticalLoading && <SkeletonList count={2} rows={3} />}
+
+                {!criticalLoading && criticalError && (
+                  <div className="alert alert-danger flex-col items-start" role="alert">
+                    <p>{criticalError}</p>
+                    <button type="button" onClick={() => loadCriticalAlerts(true)} className="btn btn-danger btn-sm mt-2">ลองใหม่</button>
+                  </div>
+                )}
+
+                {!criticalLoading && !criticalError && criticalLogs.length === 0 && (
+                  <EmptyState title="ไม่มีปัญหาด่วนที่รอรับทราบ" description="เมื่อ AI ตรวจพบปัญหาร้ายแรงจากบันทึกประจำวัน จะแจ้งเตือนที่นี่ทันที" />
+                )}
+
+                {!criticalLoading && !criticalError && (
+                  <AnimatePresence>
+                    {criticalLogs.map((alert) => (
+                      <motion.article
+                        key={alert.id}
+                        layout
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.97, height: 0, marginBottom: 0 }}
+                        className="rounded-2xl border border-rose-200 bg-surface p-4 shadow-sm sm:p-5 dark:border-rose-800/50"
+                      >
+                        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <div className="mb-2 flex flex-wrap items-center gap-3">
+                              <h4 className="text-base font-bold text-ink sm:text-lg">{studentAlertName(alert)}</h4>
+                              <span className="badge badge-danger">ปัญหาด่วน</span>
+                            </div>
+                            <p className="text-xs text-ink-muted">
+                              วันที่บันทึก: <span className="font-semibold text-ink">{formatThaiDate(alert.date || '')}</span>
+                            </p>
+
+                            <div className="alert alert-danger mt-3 flex-col items-start">
+                              <p className="eyebrow text-rose-600 dark:text-rose-300">อุปสรรค (Blocker)</p>
+                              <p className="text-sm">{alert.blocker?.trim() || 'ไม่ระบุอุปสรรค'}</p>
+                            </div>
+
+                            <div className="alert alert-warning mt-3 flex-col items-start">
+                              <p className="eyebrow text-orange-700 dark:text-orange-300">คำแนะนำจาก AI</p>
+                              <p className="text-sm">{alert.ai_feedback || alert.feedback || 'ยังไม่มีคำแนะนำจาก AI'}</p>
+                            </div>
                           </div>
-                          <p className="m-0 text-xs font-medium text-zinc-500 dark:text-zinc-400">วันที่บันทึก: <span className="font-bold text-zinc-800 dark:text-zinc-200">{formatThaiDate(alert.date || '')}</span></p>
-                          <div className="p-4 mt-3 border border-rose-200/80 dark:border-rose-900/50 bg-rose-50/70 dark:bg-rose-950/30 rounded-xl">
-                            <p className="mb-1 text-[10px] font-black tracking-widest uppercase text-rose-600 dark:text-rose-400">อุปสรรค (Blocker)</p>
-                            <p className="m-0 text-sm leading-relaxed text-rose-800 dark:text-rose-200">{alert.blocker?.trim() || 'ไม่ระบุอุปสรรค'}</p>
-                          </div>
-                          <div className="p-4 mt-3 border border-orange-200/80 dark:border-orange-900/40 bg-orange-50/70 dark:bg-orange-950/20 rounded-xl">
-                            <p className="mb-1 text-[10px] font-black tracking-widest uppercase text-orange-700 dark:text-orange-400">คำแนะนำจาก AI (Feedback)</p>
-                            <p className="m-0 text-sm leading-relaxed text-orange-900 dark:text-orange-200">{alert.ai_feedback || alert.feedback || 'ยังไม่มีคำแนะนำจาก AI'}</p>
-                          </div>
+
+                          <button
+                            type="button"
+                            disabled={acknowledgingId === alert.id}
+                            onClick={() => handleAcknowledge(alert.id)}
+                            className="btn btn-warning-soft btn-sm shrink-0"
+                          >
+                            {acknowledgingId === alert.id ? <><Spinner /> กำลังบันทึก...</> : 'รับทราบ / ให้คำปรึกษาแล้ว'}
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          disabled={acknowledgingId === alert.id}
-                          onClick={() => handleAcknowledge(alert.id)}
-                          className="shrink-0 px-5 py-2.5 text-xs font-semibold text-white bg-orange-600 rounded-xl shadow-md hover:bg-orange-700 disabled:opacity-60"
-                        >
-                          {acknowledgingId === alert.id ? 'กำลังบันทึก...' : 'รับทราบ / ให้คำปรึกษาแล้ว'}
-                        </button>
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-              )}
-            </div>
-          </motion.div>
+                      </motion.article>
+                    ))}
+                  </AnimatePresence>
+                )}
+              </div>
+            </motion.section>
           )}
 
-          <motion.div variants={containerVariants} className="grid grid-cols-1 gap-6 mb-10 md:grid-cols-3">
-            <motion.div variants={itemVariants} whileHover={{ y: -4 }} className="p-8 text-center bg-white/70 dark:bg-[#161616] backdrop-blur-xl border border-zinc-200/50 dark:border-white/5 shadow-sm rounded-[2rem] relative overflow-hidden group"><div className="absolute inset-0 transition-opacity duration-500 opacity-0 bg-indigo-500/5 dark:bg-indigo-500/10 group-hover:opacity-100"></div><p className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 tracking-widest uppercase mb-2 relative z-10">Total Students</p><h3 className="relative z-10 m-0 text-6xl font-black tracking-tighter text-indigo-600 dark:text-indigo-400">{total}</h3></motion.div>
-            <motion.div variants={itemVariants} whileHover={{ y: -4 }} className="p-8 text-center bg-white/70 dark:bg-[#161616] backdrop-blur-xl border border-zinc-200/50 dark:border-white/5 shadow-sm rounded-[2rem] relative overflow-hidden group"><div className="absolute inset-0 transition-opacity duration-500 opacity-0 bg-emerald-500/5 dark:bg-emerald-500/10 group-hover:opacity-100"></div><p className="text-[10px] font-black text-emerald-600 dark:text-emerald-500 tracking-widest uppercase mb-2 relative z-10">Successfully Matched</p><h3 className="relative z-10 m-0 text-6xl font-black tracking-tighter text-emerald-500 dark:text-emerald-400">{matched}</h3></motion.div>
-            <motion.div variants={itemVariants} whileHover={{ y: -4 }} className="p-8 text-center bg-white/70 dark:bg-[#161616] backdrop-blur-xl border border-zinc-200/50 dark:border-white/5 shadow-sm rounded-[2rem] relative overflow-hidden group"><div className="absolute inset-0 transition-opacity duration-500 opacity-0 bg-rose-500/5 dark:bg-rose-500/10 group-hover:opacity-100"></div><p className={`text-[10px] font-black tracking-widest uppercase mb-2 relative z-10 ${pending > 0 ? 'text-rose-600 dark:text-rose-500' : 'text-amber-600 dark:text-amber-500'}`}>คำร้องรออนุมัติ</p><h3 className={`relative z-10 m-0 text-6xl font-black tracking-tighter ${pending > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-amber-500 dark:text-amber-400'}`}>{pending}</h3></motion.div>
+          {/* ---------- Stats ---------- */}
+          <motion.div variants={containerVariants} className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-6">
+            <motion.div variants={itemVariants} className="card card-pad text-center">
+              <p className="eyebrow">นักศึกษาทั้งหมด</p>
+              <p className="stat-value mt-2 text-brand-600 dark:text-brand-400">{total}</p>
+            </motion.div>
+            <motion.div variants={itemVariants} className="card card-pad text-center">
+              <p className="eyebrow">จับคู่สำเร็จ</p>
+              <p className="stat-value mt-2 text-emerald-600 dark:text-emerald-400">{matched}</p>
+            </motion.div>
+            <motion.div variants={itemVariants} className="card card-pad text-center">
+              <p className="eyebrow">คำร้องรออนุมัติ</p>
+              <p className={`stat-value mt-2 ${pending > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`}>{pending}</p>
+            </motion.div>
           </motion.div>
 
           <motion.div variants={itemVariants}>
@@ -261,130 +291,205 @@ export default function Teacher({ activeMenu, showToast }: { activeMenu?: string
             />
           </motion.div>
 
+          {/* ---------- Waiver requests ---------- */}
           {!petitionsFocus && cancelRequests.length > 0 && (
-            <motion.div variants={itemVariants} className="overflow-hidden mb-10 bg-white/70 dark:bg-[#121212] backdrop-blur-xl border shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:shadow-none rounded-[2rem] border-rose-200/80 dark:border-rose-900/50">
-              <div className="flex items-center justify-between px-8 py-6 border-b border-rose-100 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/20">
-                <h3 className="flex items-center gap-2 m-0 text-sm font-bold tracking-wide uppercase text-rose-800 dark:text-rose-400">คำร้องขอสละสิทธิ์สถานที่ฝึกงาน ({cancelRequests.length})</h3>
+            <motion.section variants={itemVariants} className="panel mb-8 border-rose-200 dark:border-rose-900/50">
+              <div className="panel-header border-rose-200 bg-rose-50 dark:border-rose-900/50 dark:bg-rose-950/20">
+                <h3 className="section-title text-rose-800 dark:text-rose-300">คำร้องขอสละสิทธิ์สถานที่ฝึกงาน</h3>
+                <span className="badge badge-danger">{cancelRequests.length} รายการ</span>
               </div>
-              <div className="p-6 space-y-4">
+              <div className="panel-body">
                 {cancelRequests.map((req) => (
-                  <div key={req.id} className="p-5 border bg-white dark:bg-[#161616] border-rose-200/50 dark:border-rose-900/30 rounded-2xl flex flex-col xl:flex-row xl:items-center justify-between gap-4 shadow-sm">
-                    <div>
-                      <h4 className="m-0 text-lg font-bold text-zinc-900 dark:text-zinc-100">{req.student_name}</h4>
-                      <p className="m-0 mt-1 text-xs text-zinc-500 dark:text-zinc-400">ขอยกเลิกบริษัท: <span className="font-bold text-indigo-600 dark:text-indigo-400">{req.company_name}</span></p>
-                      <p className="p-3 mt-3 text-sm border bg-rose-50/50 dark:bg-rose-950/20 border-rose-100 dark:border-rose-900/50 rounded-xl text-rose-800 dark:text-rose-300"><strong>เหตุผล:</strong> {req.reason}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button onClick={() => setActiveChatId(`${req.application_id}-TS`)} className="px-4 py-2 text-xs font-semibold text-zinc-700 bg-zinc-100 border border-zinc-200 rounded-xl dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700 hover:bg-zinc-200"><IconChat /> สอบถามนักศึกษา</button>
-                      <button onClick={() => handleResolveRequest(req.id, req.application_id, 'reject')} className="px-4 py-2 text-xs font-semibold text-zinc-700 bg-white border border-zinc-200 rounded-xl dark:bg-[#1a1a1a] dark:text-zinc-300 dark:border-white/10 hover:bg-zinc-50">ไม่อนุมัติ</button>
-                      <button onClick={() => handleResolveRequest(req.id, req.application_id, 'approve')} className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 rounded-xl shadow-md hover:bg-rose-700">อนุมัติสละสิทธิ์</button>
+                  <div key={req.id} className="card card-pad">
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-base font-bold text-ink sm:text-lg">{req.student_name}</h4>
+                        <p className="mt-1 text-xs text-ink-muted">
+                          ขอยกเลิกบริษัท: <span className="font-semibold text-brand-600 dark:text-brand-400">{req.company_name}</span>
+                        </p>
+                        <p className="alert alert-danger mt-3"><strong>เหตุผล:</strong> {req.reason}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 xl:justify-end">
+                        <button type="button" onClick={() => setActiveChatId(`${req.application_id}-TS`)} className="btn btn-outline btn-sm">
+                          <IconChat /> สอบถามนักศึกษา
+                        </button>
+                        <button type="button" onClick={() => handleResolveRequest(req.id, req.application_id, 'reject')} className="btn btn-outline btn-sm">ไม่อนุมัติ</button>
+                        <button type="button" onClick={() => handleResolveRequest(req.id, req.application_id, 'approve')} className="btn btn-danger btn-sm">อนุมัติสละสิทธิ์</button>
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
-            </motion.div>
+            </motion.section>
           )}
 
+          {/* ---------- Student monitoring ---------- */}
           {!petitionsFocus && (
-          <motion.div variants={itemVariants} className="overflow-hidden bg-white/70 dark:bg-[#121212] backdrop-blur-xl border shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:shadow-none rounded-[2rem] border-zinc-200/50 dark:border-white/5">
-            <div className="flex items-center justify-between px-8 py-6 border-b border-zinc-100 dark:border-white/5 bg-zinc-50/50 dark:bg-white/5">
-              <h3 className="flex items-center gap-2 m-0 text-sm font-bold tracking-wide uppercase text-zinc-800 dark:text-zinc-200">สถานะและสมุดบันทึกของนักศึกษา</h3>
-            </div>
-            
-            <div className="p-6 space-y-4">
-              {applications.length === 0 ? <p className="py-10 font-medium text-center text-zinc-400 dark:text-zinc-500">ยังไม่มีข้อมูลนักศึกษาในระบบ</p> : 
-              applications.map((app, index) => {
-                const hasIssue = checkIssues(app.name);
-                const ev = evaluations.find(e => e.application_id === app.id);
+            <motion.section variants={itemVariants} className="panel">
+              <div className="panel-header">
+                <h3 className="section-title">สถานะและสมุดบันทึกของนักศึกษา</h3>
+                <span className="badge badge-neutral">{applications.length} รายการ</span>
+              </div>
 
-                return (
-                <motion.div key={app.id || index} variants={itemVariants} className={`p-6 transition-all bg-white dark:bg-[#161616] border ${hasIssue ? 'border-rose-300 dark:border-rose-900/50 shadow-[0_0_15px_rgba(244,63,94,0.1)]' : 'border-zinc-200/50 dark:border-white/5'} rounded-[1.5rem] hover:shadow-sm`}>
-                  <div className="flex flex-col items-start justify-between gap-5 xl:flex-row xl:items-center">
-                    <div>
-                      <div className="flex items-center gap-3 mb-2">
-                        <h4 className="m-0 text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">{app.name}</h4>
-                        <span className={`px-3 py-1 rounded-md text-[9px] font-black tracking-widest uppercase border ${app.status === 'Matched' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20' : app.status === 'Canceled' ? 'bg-zinc-500/10 text-zinc-700 dark:text-zinc-400 border-zinc-500/20' : app.status === 'Completed' ? 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20' : app.status === 'Rejected' ? 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20' : 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'}`}>{app.status}</span>
+              <div className="panel-body">
+                {dataLoading && applications.length === 0 && <SkeletonList count={3} />}
+
+                {!dataLoading && applications.length === 0 && (
+                  <EmptyState title="ยังไม่มีข้อมูลนักศึกษาในระบบ" description="เมื่อมีนักศึกษาสมัครฝึกงาน ข้อมูลจะปรากฏที่นี่" />
+                )}
+
+                {applications.map((app, index) => {
+                  const hasIssue = checkIssues(app.name);
+                  const ev = evaluations.find(e => e.application_id === app.id);
+                  const badge = STATUS_BADGE[app.status] || { cls: 'badge-neutral', label: app.status };
+                  const entries = studentLogsOf(app.name);
+
+                  return (
+                    <motion.div
+                      key={app.id || index}
+                      variants={itemVariants}
+                      className={`card card-pad ${hasIssue ? 'border-rose-300 dark:border-rose-900/60' : ''}`}
+                    >
+                      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                        <div className="min-w-0">
+                          <div className="mb-2 flex flex-wrap items-center gap-3">
+                            <h4 className="text-base font-bold text-ink sm:text-lg">{app.name}</h4>
+                            <span className={`badge ${badge.cls}`}>{badge.label}</span>
+                            {hasIssue && <span className="badge badge-warning">มีอุปสรรคที่ต้องติดตาม</span>}
+                          </div>
+                          <p className="text-xs text-ink-muted">ตำแหน่ง: <span className="font-semibold text-ink">{app.job_title}</span></p>
+                          <p className="mt-1 text-xs text-ink-muted">บริษัท: <span className="font-semibold text-brand-600 dark:text-brand-400">{app.company}</span></p>
+
+                          {app.status === 'Completed' && ev && (
+                            <div className="alert alert-info mt-4">
+                              <span className="mt-0.5 shrink-0 text-blue-600 dark:text-blue-400"><IconTrophy /></span>
+                              <span>
+                                <span className="block font-bold">ผลการประเมิน: {ev.score} / 100</span>
+                                {ev.comment && <span className="mt-1 block text-xs opacity-90">“{ev.comment}”</span>}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 xl:justify-end">
+                          <button
+                            type="button"
+                            onClick={() => { setActiveChatId(null); setActiveLogCardId(activeLogCardId === app.id ? null : app.id); }}
+                            aria-expanded={activeLogCardId === app.id}
+                            className={`btn btn-sm ${activeLogCardId === app.id ? 'btn-neutral' : 'btn-warning-soft'}`}
+                          >
+                            <IconClipboard /> {activeLogCardId === app.id ? 'ปิดบันทึก' : 'บันทึกประจำวัน'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setActiveLogCardId(null); setActiveChatId(activeChatId === `${app.id}-TS` ? null : `${app.id}-TS`); }}
+                            aria-expanded={activeChatId === `${app.id}-TS`}
+                            className={`btn btn-sm ${activeChatId === `${app.id}-TS` ? 'btn-neutral' : 'btn-primary'}`}
+                          >
+                            <IconChat /> นักศึกษา
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setActiveLogCardId(null); setActiveChatId(activeChatId === `${app.id}-TH` ? null : `${app.id}-TH`); }}
+                            aria-expanded={activeChatId === `${app.id}-TH`}
+                            className={`btn btn-sm ${activeChatId === `${app.id}-TH` ? 'btn-neutral' : 'btn-outline'}`}
+                          >
+                            <IconChat /> HR
+                          </button>
+                        </div>
                       </div>
-                      <p className="m-0 mt-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">ตำแหน่ง: <span className="font-bold text-zinc-800 dark:text-zinc-200">{app.job_title}</span></p>
-                      <p className="m-0 mt-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">บริษัท: <span className="font-bold text-indigo-600 dark:text-indigo-400">{app.company}</span></p>
-                      
-                      {app.status === 'Completed' && ev && (
-                        <div className="flex items-start gap-3 p-3 mt-4 border shadow-sm bg-blue-50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-900/30 rounded-xl">
-                          <div className="text-blue-600 dark:text-blue-400 mt-0.5"><IconTrophy /></div>
-                          <div>
-                            <p className="m-0 text-sm font-bold text-blue-800 dark:text-blue-300">ผลการประเมิน: {ev.score} / 100</p>
-                            {ev.comment && <p className="m-0 mt-1 text-xs text-blue-700/80 dark:text-blue-400/80">"{ev.comment}"</p>}
-                          </div>
-                        </div>
-                      )}
-                    </div>
 
-                    <div className="flex flex-wrap gap-3">
-                      <button onClick={() => { setActiveChatId(null); setActiveLogCardId(activeLogCardId === app.id ? null : app.id); }} className={`px-5 py-2.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 border ${activeLogCardId === app.id ? 'bg-amber-500 text-white border-amber-500 dark:bg-amber-600 dark:border-amber-600' : 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20'}`}><IconClipboard /> {activeLogCardId === app.id ? 'ปิดบันทึก' : 'บันทึกประจำวัน'}</button>
-                      <button onClick={() => { setActiveLogCardId(null); setActiveChatId(activeChatId === `${app.id}-TS` ? null : `${app.id}-TS`); }} className={`px-5 py-2.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 border ${activeChatId === `${app.id}-TS` ? 'bg-zinc-900 text-white dark:bg-white dark:text-black border-zinc-900 dark:border-white' : 'bg-indigo-600 text-white dark:bg-indigo-500 border-indigo-600 dark:border-indigo-500 hover:bg-indigo-700 dark:hover:bg-indigo-400 shadow-sm'}`}><IconChat /> นักศึกษา</button>
-                      <button onClick={() => { setActiveLogCardId(null); setActiveChatId(activeChatId === `${app.id}-TH` ? null : `${app.id}-TH`); }} className={`px-5 py-2.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 border ${activeChatId === `${app.id}-TH` ? 'bg-zinc-900 text-white dark:bg-white dark:text-black border-zinc-900 dark:border-white' : 'bg-white dark:bg-[#1a1a1a] border-zinc-200 dark:border-white/10 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-white/5 shadow-sm'}`}><IconChat /> HR</button>
-                    </div>
-                  </div>
-
-                  <AnimatePresence>
-                    {activeLogCardId === app.id && (
-                      <motion.div initial={{ height: 0, opacity: 0, marginTop: 0 }} animate={{ height: 'auto', opacity: 1, marginTop: 24 }} exit={{ height: 0, opacity: 0, marginTop: 0 }} className="w-full overflow-hidden border shadow-inner border-amber-200/50 dark:border-amber-900/30 rounded-2xl bg-amber-50/50 dark:bg-amber-950/10">
-                        <div className="flex items-center justify-between px-5 py-3 text-xs font-bold border-b text-amber-800 dark:text-amber-400 bg-amber-100/80 dark:bg-amber-900/40 border-amber-200/50 dark:border-amber-900/50"><span>สมุดบันทึกประจำวันของ: {app.name}</span></div>
-                        <div className="flex flex-col lg:flex-row">
-                          <div className="w-full p-6 border-b lg:w-1/3 border-amber-200/50 dark:border-amber-900/50 lg:border-b-0 lg:border-r">
-                            <h3 className="mb-4 text-[10px] font-black tracking-widest uppercase text-amber-600 dark:text-amber-500">Activity Calendar</h3>
-                            <div className="grid grid-cols-7 gap-2 mb-4">
-                              {generateTeacherHeatmap(app.name).map((day, i) => (
-                                <div key={i} title={formatThaiDate(day.date)} className={`w-full aspect-square rounded-md transition-colors duration-300 ${day.hasLog ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-amber-100/50 dark:bg-amber-900/20'}`} />
-                              ))}
+                      {/* Logbook drawer */}
+                      <AnimatePresence>
+                        {activeLogCardId === app.id && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                            animate={{ height: 'auto', opacity: 1, marginTop: 20 }}
+                            exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                            className="w-full overflow-hidden rounded-2xl border border-line"
+                          >
+                            <div className="border-b border-line bg-surface-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                              สมุดบันทึกประจำวันของ {app.name}
                             </div>
-                          </div>
-                          <div className="w-full p-6 lg:w-2/3 h-80 overflow-y-auto bg-white/50 dark:bg-[#0a0a0a]/50">
-                            {logs.filter(l => l.name.includes(app.name.split(' ')[0])).length === 0 ? (
-                              <div className="flex flex-col items-center justify-center h-full"><p className="text-sm font-medium text-zinc-400 dark:text-zinc-500">ยังไม่มีการบันทึก Logbook จากนักศึกษาคนนี้</p></div>
-                            ) : (
-                              logs.filter(l => l.name.includes(app.name.split(' ')[0])).map((log) => (
-                                <div key={log.id} className="relative p-5 mb-4 border shadow-sm border-zinc-200/60 dark:border-white/5 rounded-2xl bg-white dark:bg-[#121212] last:mb-0">
-                                  <div className="flex items-center justify-between mb-4"><span className="text-[9px] font-black text-zinc-600 dark:text-zinc-400 bg-zinc-100 dark:bg-white/5 px-3 py-1.5 rounded-md uppercase tracking-widest border border-zinc-200/50 dark:border-white/5">{log.category}</span><span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500">{formatThaiDate(log.date || log.created_at)}</span></div>
-                                  <div className="mb-4"><p className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 mb-2 tracking-wide uppercase">รายละเอียดงานที่ทำ</p><p className="p-4 m-0 text-sm leading-relaxed bg-zinc-50 dark:bg-[#0a0a0a] border text-zinc-800 dark:text-zinc-200 rounded-xl border-zinc-100 dark:border-white/5">{log.activity}</p></div>
-                                  {log.blocker && log.blocker.trim() !== '' && (
-                                    <div className="p-4 border border-rose-200/80 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/20 rounded-xl"><p className="flex items-center gap-2 mb-2 text-xs font-bold tracking-wide uppercase text-rose-600 dark:text-rose-400">ปัญหาที่พบ (BLOCKERS)</p><p className="m-0 text-sm leading-relaxed text-rose-800 dark:text-rose-300">{log.blocker}</p></div>
-                                  )}
+                            <div className="flex flex-col lg:flex-row">
+                              <div className="border-b border-line p-4 sm:p-5 lg:w-1/3 lg:border-b-0 lg:border-r">
+                                <p className="eyebrow mb-3">ปฏิทินการบันทึก (30 วัน)</p>
+                                <div className="grid grid-cols-7 gap-1.5">
+                                  {generateTeacherHeatmap(app.name).map((day, i) => (
+                                    <div
+                                      key={i}
+                                      title={`${formatThaiDate(day.date)}${day.hasLog ? ' · จดแล้ว' : ' · ไม่มีบันทึก'}`}
+                                      className={`aspect-square w-full rounded-md transition ${day.hasLog ? 'bg-emerald-500' : 'bg-surface-2 dark:bg-white/5'}`}
+                                    />
+                                  ))}
                                 </div>
-                              ))
-                            )}
-                          </div>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                                <p className="field-hint">สีเขียว = วันที่นักศึกษาบันทึกงาน</p>
+                              </div>
 
-                  <AnimatePresence>
-                    {activeChatId && (activeChatId === `${app.id}-TS` || activeChatId === `${app.id}-TH`) && (
-                      <motion.div initial={{ height: 0, opacity: 0, marginTop: 0 }} animate={{ height: 'auto', opacity: 1, marginTop: 24 }} exit={{ height: 0, opacity: 0, marginTop: 0 }} className="w-full overflow-hidden border shadow-inner border-zinc-200 dark:border-white/5 rounded-2xl bg-zinc-50/50 dark:bg-[#0a0a0a]">
-                        <div className="flex items-center justify-between px-5 py-3 text-xs font-semibold tracking-wide uppercase border-b text-zinc-600 dark:text-zinc-400 bg-zinc-100/80 dark:bg-white/5 border-zinc-200 dark:border-white/5">
-                          <span>ห้องสนทนาส่วนตัวกับ: {activeChatId === `${app.id}-TS` ? <span className="ml-1 font-black text-indigo-600 dark:text-indigo-400">นักศึกษา</span> : <span className="ml-1 font-black text-indigo-600 dark:text-indigo-400">HR ({app.company})</span>}</span>
-                        </div>
-                        <div className="flex flex-col h-64 p-5 space-y-3 overflow-y-auto bg-white/50 dark:bg-transparent">
-                          {chatMessages.length === 0 ? <p className="py-4 my-auto text-xs font-medium text-center text-zinc-400 dark:text-zinc-500">เริ่มพิมพ์ข้อความ...</p> : 
-                            chatMessages.map((m) => (
-                            <div key={m.id} className={`max-w-[75%] p-3.5 rounded-2xl text-sm shadow-sm ${m.sender === 'teacher' ? 'bg-indigo-600 dark:bg-indigo-500 text-white ml-auto rounded-br-sm' : 'bg-white dark:bg-[#1a1a1a] text-zinc-800 dark:text-zinc-200 mr-auto rounded-bl-sm border border-zinc-200 dark:border-white/5'}`}>
-                              <p className="m-0 font-medium leading-relaxed">{m.text}</p>
+                              <div className="max-h-80 w-full space-y-4 overflow-y-auto p-4 sm:p-5 lg:w-2/3">
+                                {entries.length === 0 ? (
+                                  <EmptyState title="ยังไม่มีบันทึก" description="นักศึกษาคนนี้ยังไม่ได้บันทึกสมุดสหกิจ" />
+                                ) : (
+                                  entries.map((log) => (
+                                    <article key={log.id} className="card card-pad">
+                                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                        <span className="badge badge-neutral">{log.category}</span>
+                                        <span className="text-xs font-medium text-ink-subtle">{formatThaiDate(log.date || log.created_at)}</span>
+                                      </div>
+                                      <p className="eyebrow mb-2">รายละเอียดงานที่ทำ</p>
+                                      <p className="rounded-xl border border-line bg-surface-2 p-3.5 text-sm leading-relaxed text-ink">{log.activity}</p>
+                                      {log.blocker && log.blocker.trim() !== '' && (
+                                        <div className="alert alert-danger mt-3 flex-col items-start">
+                                          <p className="eyebrow text-rose-600 dark:text-rose-300">ปัญหาที่พบ</p>
+                                          <p className="text-sm">{log.blocker}</p>
+                                        </div>
+                                      )}
+                                    </article>
+                                  ))
+                                )}
+                              </div>
                             </div>
-                          ))}
-                        </div>
-                        <form onSubmit={(e) => { handleSendChat(e); notify('ส่งข้อความสำเร็จ', 'success'); }} className="flex gap-3 p-3 bg-white border-t dark:bg-[#121212] border-zinc-200 dark:border-white/5">
-                          <input type="text" value={typedMessage} onChange={e => setTypedMessage(e.target.value)} placeholder="พิมพ์ข้อความ..." className="flex-1 px-4 py-2.5 text-sm transition-all border outline-none bg-[#1a1a1a] border-white/10 text-white placeholder-gray-400 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-500" />
-                          <button type="submit" className="px-6 py-2.5 bg-zinc-900 dark:bg-white text-white dark:text-black text-sm font-semibold rounded-xl">ส่ง</button>
-                        </form>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </motion.div>
-              );
-              })}
-            </div>
-          </motion.div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      {/* Chat drawer */}
+                      <AnimatePresence>
+                        {activeChatId && (activeChatId === `${app.id}-TS` || activeChatId === `${app.id}-TH`) && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                            animate={{ height: 'auto', opacity: 1, marginTop: 20 }}
+                            exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                            className="w-full overflow-hidden rounded-2xl border border-line"
+                          >
+                            <div className="border-b border-line bg-surface-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                              ห้องสนทนากับ:{' '}
+                              <span className="font-bold text-brand-600 dark:text-brand-400">
+                                {activeChatId === `${app.id}-TS` ? 'นักศึกษา' : `HR (${app.company})`}
+                              </span>
+                            </div>
+                            <div className="chat-window h-64">
+                              {chatMessages.length === 0
+                                ? <p className="my-auto text-center text-sm text-ink-muted">เริ่มพิมพ์ข้อความเพื่อสนทนา...</p>
+                                : chatMessages.map((m) => (
+                                  <div key={m.id} className={`bubble ${m.sender === 'teacher' ? 'bubble-me' : 'bubble-them'}`}>
+                                    <p>{m.text}</p>
+                                  </div>
+                                ))}
+                            </div>
+                            <form onSubmit={handleSendChat} className="flex gap-2 border-t border-line bg-surface p-3">
+                              <label htmlFor={`teacher-chat-${app.id}`} className="sr-only">ข้อความ</label>
+                              <input id={`teacher-chat-${app.id}`} type="text" value={typedMessage} onChange={(e) => setTypedMessage(e.target.value)} placeholder="พิมพ์ข้อความ..." className="input py-2.5" />
+                              <button type="submit" disabled={!typedMessage.trim()} className="btn btn-neutral btn-sm shrink-0">ส่ง</button>
+                            </form>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </motion.section>
           )}
         </motion.div>
       </AnimatePresence>

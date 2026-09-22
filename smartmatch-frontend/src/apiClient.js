@@ -133,6 +133,10 @@ export async function apiFetch(path, options = {}) {
     const error = new Error('Unauthorized');
     error.status = 401;
     error.data = await res.json().catch(() => ({ error: 'Unauthorized' }));
+    error.code = error.data?.code || '';
+    // Login/MFA calls opt out of the redirect, and their 401 bodies explain the
+    // real cause (wrong OTP, expired MFA session), so keep that message.
+    error.trustServerMessage = skipAuthRedirect;
     throw error;
   }
 
@@ -158,7 +162,10 @@ export async function apiPublicJson(path, options = {}) {
 export function friendlyApiError(err, fallback = 'เกิดข้อผิดพลาด กรุณาลองอีกครั้ง') {
   if (!err) return fallback;
   if (err.status === 0) return 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้';
-  if (err.status === 401) return 'เซสชันหมดอายุหรือยังไม่ได้เข้าสู่ระบบ กรุณาล็อกอินใหม่';
+  if (err.status === 401) {
+    if (err.trustServerMessage && err.data?.error) return err.data.error;
+    return 'เซสชันหมดอายุหรือยังไม่ได้เข้าสู่ระบบ กรุณาล็อกอินใหม่';
+  }
   if (err.status === 403) return 'คุณไม่มีสิทธิ์ใช้งานส่วนนี้';
   if (err.status === 404) return 'ไม่พบข้อมูลที่ต้องการ';
   if (err.status >= 500) return 'เซิร์ฟเวอร์มีปัญหาชั่วคราว กรุณาลองใหม่ในอีกสักครู่';

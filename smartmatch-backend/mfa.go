@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"image/png"
+	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 	"unicode"
@@ -39,6 +41,45 @@ func ensureMFAColumns() {
 			fmt.Println("mfa schema migrate:", err)
 		}
 	}
+}
+
+const (
+	mfaCodeSessionExpired = "mfa_session_expired"
+	mfaCodeNotEnrolled    = "mfa_not_enrolled"
+	mfaCodeInvalidCode    = "mfa_code_invalid"
+)
+
+// totpSetupFromSecret rebuilds the otpauth URL and QR image for a secret that
+// already exists, so an incomplete enrolment can be resumed.
+func totpSetupFromSecret(email, secret string) (otpauthURL, qrDataURL string, err error) {
+	values := url.Values{}
+	values.Set("secret", strings.TrimSpace(secret))
+	values.Set("issuer", mfaIssuer)
+	values.Set("algorithm", "SHA1")
+	values.Set("digits", "6")
+	values.Set("period", "30")
+
+	raw := url.URL{
+		Scheme:   "otpauth",
+		Host:     "totp",
+		Path:     "/" + mfaIssuer + ":" + email,
+		RawQuery: values.Encode(),
+	}
+
+	key, err := otp.NewKeyFromURL(raw.String())
+	if err != nil {
+		return "", "", err
+	}
+
+	img, err := key.Image(240, 240)
+	if err != nil {
+		return key.URL(), "", err
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return key.URL(), "", err
+	}
+	return key.URL(), "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes()), nil
 }
 
 func generateTOTPSetup(email string) (secret, otpauthURL, qrDataURL string, err error) {
@@ -121,15 +162,20 @@ func writeMFAChallenge(w http.ResponseWriter, userID int64, email, role, otpauth
 		writeError(w, http.StatusInternalServerError, "failed to start MFA challenge")
 		return
 	}
+	message := "กรุณากรอกรหัส 6 หลักจากแอป Authenticator"
+	if qrDataURL != "" {
+		message = "ยังไม่ได้ตั้งค่า MFA ให้เสร็จ กรุณาสแกน QR แล้วกรอกรหัส 6 หลักเพื่อยืนยัน"
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"require_mfa":    true,
-		"mfa_token":      mfaToken,
-		"user_id":        userID,
-		"email":          email,
-		"role":           role,
-		"otpauth_url":    otpauthURL,
+		"require_mfa":     true,
+		"mfa_token":       mfaToken,
+		"user_id":         userID,
+		"email":           email,
+		"role":            role,
+		"otpauth_url":     otpauthURL,
 		"qr_image_base64": qrDataURL,
-		"message":        "กรุณากรอกรหัส 6 หลักจากแอป Authenticator",
+		"mfa_pending":     qrDataURL != "",
+		"message":         message,
 	})
 }
 
@@ -152,11 +198,12 @@ func VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 
 	tokenClaims, err := parseTokenClaims(req.MFAToken)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "MFA session expired or invalid")
+		log.Printf("verify-mfa: %v", err)
+		writeErrorCode(w, http.StatusUnauthorized, mfaCodeSessionExpired, "เซสชันยืนยัน MFA หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง")
 		return
 	}
 	if tokenClaims.Purpose != tokenPurposeMFA {
-		writeError(w, http.StatusUnauthorized, "invalid MFA token")
+		writeErrorCode(w, http.StatusUnauthorized, mfaCodeSessionExpired, "เซสชันยืนยัน MFA ไม่ถูกต้อง กรุณาเข้าสู่ระบบอีกครั้ง")
 		return
 	}
 
@@ -167,7 +214,7 @@ func VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 		tokenClaims.UserID,
 	).Scan(&email, &role, &secret, &enabled)
 	if err != nil || secret == "" {
-		writeError(w, http.StatusUnauthorized, "MFA is not set up for this account")
+		writeErrorCode(w, http.StatusUnauthorized, mfaCodeNotEnrolled, "บัญชีนี้ยังไม่ได้ตั้งค่า MFA กรุณาเข้าสู่ระบบใหม่เพื่อสแกน QR อีกครั้ง")
 		return
 	}
 
@@ -178,7 +225,7 @@ func VerifyMFAHandler(w http.ResponseWriter, r *http.Request) {
 		Algorithm: otp.AlgorithmSHA1,
 	})
 	if err != nil || !ok {
-		writeError(w, http.StatusUnauthorized, "รหัส MFA ไม่ถูกต้องหรือหมดอายุ")
+		writeErrorCode(w, http.StatusUnauthorized, mfaCodeInvalidCode, "รหัส MFA ไม่ถูกต้องหรือหมดอายุ กรุณากรอกรหัสล่าสุดจากแอป Authenticator")
 		return
 	}
 

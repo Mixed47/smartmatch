@@ -49,6 +49,9 @@ type AuthResponse struct {
 
 type errorResponse struct {
 	Error string `json:"error"`
+	// Code lets the client react to a specific failure (for example sending the
+	// user back to the password step) instead of guessing from the HTTP status.
+	Code string `json:"code,omitempty"`
 }
 
 type claims struct {
@@ -66,6 +69,10 @@ func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
 
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, errorResponse{Error: message})
+}
+
+func writeErrorCode(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, errorResponse{Error: message, Code: code})
 }
 
 func requireDB(w http.ResponseWriter) bool {
@@ -158,8 +165,10 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// mfa_enabled stays 0 until the user proves they hold the secret by passing
+	// the first TOTP challenge, so an un-scanned QR can still be re-issued.
 	result, err := db.Exec(
-		"INSERT INTO users (email, password_hash, role, mfa_secret, mfa_enabled) VALUES (?, ?, ?, ?, 1)",
+		"INSERT INTO users (email, password_hash, role, mfa_secret, mfa_enabled) VALUES (?, ?, ?, ?, 0)",
 		req.Email, string(hash), req.Role, secret,
 	)
 	if err != nil {
@@ -183,7 +192,8 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		"user_id":         userID,
 		"email":           req.Email,
 		"role":            req.Role,
-		"mfa_enabled":     true,
+		"mfa_enabled":     false,
+		"mfa_pending":     true,
 		"otpauth_url":     otpauthURL,
 		"qr_image_base64": qrDataURL,
 	})
@@ -229,17 +239,29 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The enrolment QR is re-issued (after the password check) for as long as
+	// enrolment is incomplete, otherwise a user who never scanned it would be
+	// locked out permanently. Once mfa_enabled is 1 the secret is never exposed.
 	otpauthURL := ""
 	qrDataURL := ""
-	if strings.TrimSpace(mfaSecret) == "" {
+	switch {
+	case strings.TrimSpace(mfaSecret) == "":
 		secret, url, qr, genErr := generateTOTPSetup(req.Email)
 		if genErr != nil {
 			writeError(w, http.StatusInternalServerError, "failed to generate MFA secret")
 			return
 		}
-		if _, err := db.Exec("UPDATE users SET mfa_secret = ?, mfa_enabled = 1 WHERE id = ?", secret, userID); err != nil {
+		if _, err := db.Exec("UPDATE users SET mfa_secret = ?, mfa_enabled = 0 WHERE id = ?", secret, userID); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to save MFA secret")
 			return
+		}
+		otpauthURL = url
+		qrDataURL = qr
+	case !mfaEnabled:
+		url, qr, setupErr := totpSetupFromSecret(req.Email, mfaSecret)
+		if setupErr != nil {
+			log.Printf("login: rebuild MFA enrolment QR: %v", setupErr)
+			break
 		}
 		otpauthURL = url
 		qrDataURL = qr

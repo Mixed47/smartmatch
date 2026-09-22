@@ -18,6 +18,7 @@ export default function Login() {
   const [mfaToken, setMfaToken] = useState('');
   const [qrImage, setQrImage] = useState('');
   const [otpauthURL, setOtpauthURL] = useState('');
+  const [mfaPending, setMfaPending] = useState(false);
   const [pendingRole, setPendingRole] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState(location.state?.registered ? 'สมัครสำเร็จแล้ว กรุณาสแกน QR และเข้าสู่ระบบด้วยรหัส MFA' : '');
@@ -60,6 +61,7 @@ export default function Login() {
         setPendingRole(data.role || '');
         setQrImage(data.qr_image_base64 || '');
         setOtpauthURL(data.otpauth_url || '');
+        setMfaPending(Boolean(data.mfa_pending));
         setInfo(data.message || 'กรุณากรอกรหัส 6 หลักจากแอป Authenticator');
         return;
       }
@@ -70,6 +72,16 @@ export default function Login() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const resetToPasswordStep = () => {
+    setMfaToken('');
+    setOtp('');
+    setQrImage('');
+    setOtpauthURL('');
+    setPendingRole('');
+    setMfaPending(false);
+    setInfo('');
   };
 
   const handleMfaSubmit = async (e) => {
@@ -83,7 +95,15 @@ export default function Login() {
       });
       finishLogin(data);
     } catch (err) {
-      setError(friendlyApiError(err, 'รหัส MFA ไม่ถูกต้อง'));
+      // The temporary MFA token lives for 5 minutes; only send the user back to
+      // the password step when that session is really gone.
+      if (err.code === 'mfa_session_expired') {
+        resetToPasswordStep();
+        setError(friendlyApiError(err, 'เซสชันยืนยัน MFA หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง'));
+      } else {
+        setOtp('');
+        setError(friendlyApiError(err, 'รหัส MFA ไม่ถูกต้อง'));
+      }
     } finally {
       setLoading(false);
     }
@@ -143,7 +163,9 @@ export default function Login() {
               <>
                 {qrImage && (
                   <div className="card-soft p-4 text-center">
-                    <p className="eyebrow mb-3">สแกน QR เพื่อผูกแอป Authenticator</p>
+                    <p className="eyebrow mb-3">
+                      {mfaPending ? 'ยังตั้งค่าไม่เสร็จ — สแกน QR นี้เพื่อผูกแอป Authenticator' : 'สแกน QR เพื่อผูกแอป Authenticator'}
+                    </p>
                     <img src={qrImage} alt="QR Code สำหรับตั้งค่า MFA" className="mx-auto h-44 w-44 rounded-xl bg-white p-2 sm:h-48 sm:w-48" />
                     {otpauthURL && <p className="mt-3 break-all text-[11px] text-ink-subtle">{otpauthURL}</p>}
                   </div>
@@ -166,7 +188,7 @@ export default function Login() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => { setMfaToken(''); setOtp(''); setQrImage(''); setError(''); }}
+                  onClick={() => { resetToPasswordStep(); setError(''); }}
                   className="btn btn-ghost btn-sm btn-block"
                 >
                   ← กลับไปกรอกอีเมล / รหัสผ่าน

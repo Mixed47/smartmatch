@@ -1,4 +1,6 @@
-const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8080').replace(/\/$/, '');
+// VITE_API_URL='' means "same origin" (Docker/nginx proxies /api to the backend).
+const rawApiBase = import.meta.env.VITE_API_URL;
+const API_BASE = (rawApiBase === undefined ? 'http://localhost:8080' : rawApiBase).replace(/\/$/, '');
 
 export function apiBase() {
   return API_BASE;
@@ -57,30 +59,45 @@ function redirectToLogin() {
   window.location.assign('/login');
 }
 
-export function fileURL(path) {
-  if (!path) return '';
-  let relative = path;
+// Maps a stored file path to the protected API route, or returns null when the
+// path points at an external URL that must be used as-is.
+function protectedFilePath(path) {
   if (path.startsWith('http://') || path.startsWith('https://')) {
     try {
-      const parsed = new URL(path);
-      if (parsed.pathname.startsWith('/uploads/')) {
-        relative = `/api/files/${parsed.pathname.replace(/^\/uploads\//, '')}`;
-      } else if (parsed.pathname.startsWith('/api/files/')) {
-        relative = parsed.pathname;
-      } else {
-        return path;
+      const { pathname } = new URL(path);
+      if (pathname.startsWith('/uploads/')) {
+        return `/api/files/${pathname.replace(/^\/uploads\//, '')}`;
       }
+      if (pathname.startsWith('/api/files/')) {
+        return pathname;
+      }
+      return null;
     } catch {
-      return path;
+      return null;
     }
-  } else if (path.startsWith('/uploads/')) {
-    relative = `/api/files/${path.replace(/^\/uploads\//, '')}`;
   }
+  if (path.startsWith('/uploads/')) {
+    return `/api/files/${path.replace(/^\/uploads\//, '')}`;
+  }
+  return path.startsWith('/') ? path : `/${path}`;
+}
 
-  const token = localStorage.getItem('token') || '';
-  const url = relative.startsWith('/') ? `${API_BASE}${relative}` : `${API_BASE}/${relative}`;
-  const joiner = url.includes('?') ? '&' : '?';
-  return `${url}${joiner}token=${encodeURIComponent(token)}`;
+/**
+ * Downloads a protected upload with the Authorization header and returns an
+ * object URL usable as an <img src>. Callers must revoke the URL when done.
+ */
+export async function fetchFileObjectURL(path) {
+  if (!path) return '';
+  const relative = protectedFilePath(path);
+  if (relative === null) return path;
+
+  const res = await apiFetch(relative);
+  if (!res.ok) {
+    const error = new Error(`Failed to load file (${res.status})`);
+    error.status = res.status;
+    throw error;
+  }
+  return URL.createObjectURL(await res.blob());
 }
 
 export async function apiFetch(path, options = {}) {

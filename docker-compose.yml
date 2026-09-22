@@ -1,0 +1,79 @@
+name: smartmatch
+
+services:
+  db:
+    image: mysql:8.4
+    container_name: smartmatch-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env (copy .env.example)}
+      MYSQL_DATABASE: ${DB_NAME:-smartmatch}
+      MYSQL_USER: ${DB_USER:-smartmatch}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env (copy .env.example)}
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "${DB_PUBLISHED_PORT:-3307}:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - smartmatch-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  backend:
+    build:
+      context: ./smartmatch-backend
+    container_name: smartmatch-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 8080
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-smartmatch}
+      DB_USER: ${DB_USER:-smartmatch}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env (copy .env.example)}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env, at least 32 characters}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+    ports:
+      - "${BACKEND_PUBLISHED_PORT:-8080}:8080"
+    volumes:
+      - uploads_data:/app/uploads
+    networks:
+      - smartmatch-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./smartmatch-frontend
+      args:
+        # Empty value = same-origin requests, proxied to backend by nginx.
+        VITE_API_URL: ${VITE_API_URL-}
+    container_name: smartmatch-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PUBLISHED_PORT:-5173}:80"
+    networks:
+      - smartmatch-net
+
+networks:
+  smartmatch-net:
+    driver: bridge
+
+volumes:
+  db_data:
+  uploads_data:

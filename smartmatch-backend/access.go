@@ -170,16 +170,6 @@ func serveProtectedUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "file not found")
 		return
 	}
+	w.Header().Set("Cache-Control", "private, no-store")
 	http.ServeFile(w, r, path)
-}
-
-func jwtQueryTokenMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.TrimSpace(r.Header.Get("Authorization")) == "" {
-			if token := strings.TrimSpace(r.URL.Query().Get("token")); token != "" {
-				r.Header.Set("Authorization", "Bearer "+token)
-			}
-		}
-		next.ServeHTTP(w, r)
-	})
 }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { ParsedSkill, Application } from './types';
-import { apiJson, fileURL, friendlyApiError } from './apiClient';
+import { apiJson, fetchFileObjectURL, friendlyApiError } from './apiClient';
 import { EmptyState, PageHeading, Skeleton, SkeletonList, Spinner } from './ui';
 
 interface Message { id: number; application_id: string; sender: string; text: string; created_at: string; }
@@ -32,6 +32,7 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
   const [extractedSkills, setExtractedSkills] = useState<ParsedSkill[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [applicants, setApplicants] = useState<Application[]>([]);
+  const [resumePreview, setResumePreview] = useState('');
   const [applicantsLoading, setApplicantsLoading] = useState(true);
   const [matchedList, setMatchedList] = useState<Application[]>([]);
   const [matchesLoading, setMatchesLoading] = useState(true);
@@ -97,6 +98,24 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
     if (activeMenu === '6' || activeMenu === 'hr-home') fetchMatches();
     const interval = setInterval(fetchMatches, 3000); return () => clearInterval(interval);
   }, [activeMenu]);
+
+  const currentResumeUrl = applicants[0]?.resume_url || '';
+  useEffect(() => {
+    if (!currentResumeUrl) { setResumePreview(''); return; }
+    let objectUrl = '';
+    let cancelled = false;
+    fetchFileObjectURL(currentResumeUrl)
+      .then((url) => {
+        if (cancelled) { if (url.startsWith('blob:')) URL.revokeObjectURL(url); return; }
+        objectUrl = url;
+        setResumePreview(url);
+      })
+      .catch(() => { if (!cancelled) setResumePreview(''); });
+    return () => {
+      cancelled = true;
+      if (objectUrl.startsWith('blob:')) URL.revokeObjectURL(objectUrl);
+    };
+  }, [currentResumeUrl]);
 
   useEffect(() => {
     if (!activeChatId) return;
@@ -481,8 +500,10 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
                 </div>
 
                 <div className="card-soft mb-5 flex h-56 items-center justify-center p-3 sm:h-64">
-                  {applicants[0].resume_url ? (
-                    <img src={fileURL(applicants[0].resume_url)} alt={`เรซูเม่ของ ${applicants[0].name}`} className="max-h-full rounded-xl border border-line object-contain" />
+                  {applicants[0].resume_url && resumePreview ? (
+                    <img src={resumePreview} alt={`เรซูเม่ของ ${applicants[0].name}`} className="max-h-full rounded-xl border border-line object-contain" />
+                  ) : applicants[0].resume_url ? (
+                    <Spinner />
                   ) : (
                     <p className="text-sm text-ink-muted">ผู้สมัครไม่ได้แนบไฟล์เรซูเม่</p>
                   )}

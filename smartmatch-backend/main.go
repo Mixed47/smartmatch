@@ -5,16 +5,19 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 )
@@ -110,18 +113,74 @@ func loadDotEnv() {
 	}
 }
 
+func envOrDefault(key, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return fallback
+}
+
+// mysqlDSN builds the connection string from DB_URL when provided (managed
+// databases), otherwise from the discrete DB_* variables used by docker-compose.
+func mysqlDSN() (string, error) {
+	if raw := strings.Trim(strings.TrimSpace(os.Getenv("DB_URL")), `"`); raw != "" {
+		return raw, nil
+	}
+
+	user := strings.TrimSpace(os.Getenv("DB_USER"))
+	password := os.Getenv("DB_PASSWORD")
+	if user == "" || password == "" {
+		return "", errors.New("ไม่พบค่าตั้งค่าฐานข้อมูล: ต้องกำหนด DB_URL หรือ DB_USER/DB_PASSWORD/DB_HOST")
+	}
+
+	cfg := mysql.NewConfig()
+	cfg.Net = "tcp"
+	cfg.User = user
+	cfg.Passwd = password
+	cfg.Addr = net.JoinHostPort(envOrDefault("DB_HOST", "127.0.0.1"), envOrDefault("DB_PORT", "3306"))
+	cfg.DBName = envOrDefault("DB_NAME", "smartmatch")
+	cfg.ParseTime = true
+	cfg.Loc = time.Local
+	cfg.TLSConfig = strings.TrimSpace(os.Getenv("DB_TLS"))
+	return cfg.FormatDSN(), nil
+}
+
+// connectDB retries because MySQL inside docker-compose accepts connections
+// a few seconds after the container starts.
+func connectDB(dsn string) (*sql.DB, error) {
+	conn, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, err
+	}
+	conn.SetMaxOpenConns(25)
+	conn.SetMaxIdleConns(5)
+	conn.SetConnMaxLifetime(5 * time.Minute)
+
+	attempts := 10
+	if parsed, convErr := strconv.Atoi(envOrDefault("DB_CONNECT_ATTEMPTS", "")); convErr == nil && parsed > 0 {
+		attempts = parsed
+	}
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if err = conn.Ping(); err == nil {
+			return conn, nil
+		}
+		log.Printf("⏳ รอฐานข้อมูลพร้อมใช้งาน (%d/%d): %v", attempt, attempts, err)
+		time.Sleep(3 * time.Second)
+	}
+	_ = conn.Close()
+	return nil, err
+}
+
 func initDB() {
 	loadDotEnv()
-	dsn := os.Getenv("DB_URL")
-	dsn = strings.Trim(dsn, `"`)
-	if dsn == "" {
-		fmt.Println("❌ ไม่พบ DB_URL ในไฟล์ .env")
+	dsn, err := mysqlDSN()
+	if err != nil {
+		fmt.Println("❌", err)
 		return
 	}
 
-	var err error
-	db, err = sql.Open("mysql", dsn)
-	if err != nil || db.Ping() != nil {
+	db, err = connectDB(dsn)
+	if err != nil {
 		fmt.Println("❌ Error เชื่อมต่อฐานข้อมูล:", err)
 		return
 	}
@@ -163,12 +222,21 @@ func initDB() {
 	ensureProfileTables()
 }
 
+// requireSecrets stops the server when secrets are missing so that no request
+// is ever served with an implicit fallback credential.
+func requireSecrets() {
+	if _, err := jwtSecret(); err != nil {
+		log.Fatalf("❌ %v — กำหนดค่าใน .env หรือ environment variables ก่อนเริ่มเซิร์ฟเวอร์", err)
+	}
+	if strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) == "" {
+		log.Println("⚠️  GEMINI_API_KEY is not configured — ฟีเจอร์ AI จะตอบกลับเป็น error 500")
+	}
+}
+
 func main() {
 	loadDotEnv()
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+	requireSecrets()
+	port := envOrDefault("PORT", "8080")
 	initDB()
 	os.MkdirAll("./uploads", os.ModePerm)
 
@@ -210,11 +278,20 @@ func main() {
 	r.Handle("/api/petitions/{id}/resolve", authed(resolvePetitionHandler, roleTeacher)).Methods("PUT")
 	r.Handle("/api/evaluate", authed(evaluateStudentHandler, roleCompany)).Methods("POST")
 	r.Handle("/api/evaluations", authed(getEvaluationsHandler, roleTeacher, roleCompany)).Methods("GET")
-	r.Handle("/api/files/{filename}", jwtQueryTokenMiddleware(authed(serveProtectedUpload))).Methods("GET")
+	r.Handle("/api/files/{filename}", authed(serveProtectedUpload)).Methods("GET")
 
+	r.HandleFunc("/api/health", healthHandler).Methods("GET")
 	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintf(w, "API is running!") }).Methods("GET")
 	fmt.Println("🚀 Web Server เปิดทำงานที่พอร์ต " + port)
 	log.Fatal(http.ListenAndServe(":"+port, enableCORS(r)))
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	database := "down"
+	if db != nil && db.Ping() == nil {
+		database = "up"
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "database": database})
 }
 
 func requestCancelHandler(w http.ResponseWriter, r *http.Request) {
@@ -860,12 +937,31 @@ func generateEmailHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"email": aiText})
 }
 
+// allowedOrigins reads CORS_ALLOWED_ORIGINS ("*" or a comma separated list).
+func allowedOrigins() map[string]bool {
+	allowed := map[string]bool{}
+	for _, origin := range strings.Split(envOrDefault("CORS_ALLOWED_ORIGINS", "*"), ",") {
+		if origin = strings.TrimRight(strings.TrimSpace(origin), "/"); origin != "" {
+			allowed[origin] = true
+		}
+	}
+	return allowed
+}
+
 func enableCORS(next http.Handler) http.Handler {
+	allowed := allowedOrigins()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := strings.TrimRight(strings.TrimSpace(r.Header.Get("Origin")), "/")
+		switch {
+		case allowed["*"]:
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		case origin != "" && allowed[origin]:
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		if r.Method == "OPTIONS" {
+		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
 		}

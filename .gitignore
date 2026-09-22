@@ -1,0 +1,15 @@
+# Secrets and local configuration
+.env
+.env.local
+*.env.local
+
+# Build / runtime artifacts
+smartmatch-backend/smartmatch-backend
+smartmatch-backend/smartmatch-backend.exe
+smartmatch-backend/uploads/
+smartmatch-frontend/node_modules/
+smartmatch-frontend/dist/
+
+# OS / editor
+.DS_Store
+Thumbs.db

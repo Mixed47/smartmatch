@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -74,10 +76,15 @@ func requireDB(w http.ResponseWriter) bool {
 	return true
 }
 
+const minJWTSecretLength = 32
+
 func jwtSecret() ([]byte, error) {
 	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
 	if secret == "" {
-		secret = "smartmatch-dev-jwt-secret-change-me"
+		return nil, errors.New("JWT_SECRET is not configured")
+	}
+	if len(secret) < minJWTSecretLength {
+		return nil, fmt.Errorf("JWT_SECRET must be at least %d characters", minJWTSecretLength)
 	}
 	return []byte(secret), nil
 }
@@ -306,6 +313,7 @@ func jwtAuthMiddleware(next http.Handler) http.Handler {
 
 		secret, err := jwtSecret()
 		if err != nil {
+			log.Printf("auth: %v", err)
 			writeError(w, http.StatusInternalServerError, "JWT is not configured")
 			return
 		}

@@ -71,6 +71,34 @@ func TestScoreJobMatchStudentWithoutSkillsIsRejectedFromCriticalJobs(t *testing.
 	}
 }
 
+func TestSkillNamesOverlapUsesWordBoundaries(t *testing.T) {
+	if skillNamesOverlap("Java", "JavaScript") {
+		t.Fatal("Java must not satisfy a JavaScript requirement")
+	}
+	if skillNamesOverlap("Go", "Google Cloud") {
+		t.Fatal("Go must not satisfy a Google Cloud requirement")
+	}
+	equivalents := [][2]string{
+		{"React.js", "React"},
+		{"Node.js", "node js"},
+		{"Golang", "Go"},
+		{"React Native", "React"},
+	}
+	for _, pair := range equivalents {
+		if !skillNamesOverlap(pair[0], pair[1]) {
+			t.Fatalf("expected %q to match %q", pair[0], pair[1])
+		}
+	}
+}
+
+func TestScoreJobMatchRejectsLookalikeSkill(t *testing.T) {
+	required := []JobReqSkill{{Skill: "JavaScript", Weight: "CRITICAL"}}
+
+	if _, rejected := scoreJobMatch(required, []SkillItem{{Name: "Java", Grade: "S"}}); !rejected {
+		t.Fatal("Java must not cover a critical JavaScript requirement")
+	}
+}
+
 func TestRequirementWeightDefaults(t *testing.T) {
 	if got := requirementWeight(JobReqSkill{Skill: "Go"}); got != 1 {
 		t.Fatalf("missing weight must default to STANDARD, got %d", got)

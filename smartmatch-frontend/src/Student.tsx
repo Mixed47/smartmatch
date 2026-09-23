@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { Skill, JobMatch, Application } from './types';
 import { apiFetch, apiJson, friendlyApiError } from './apiClient';
@@ -11,6 +11,10 @@ const IconSparkles = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7
 const IconChat = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.436 3 11.996c0 2.29.932 4.35 2.44 5.86l-1.92 2.91a.75.75 0 00.91 1.09l3.22-1.39a9.123 9.123 0 004.35 1.034z" /></svg>;
 const IconAlert = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-5 w-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>;
 const IconUserCircle = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-10 w-10"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>;
+
+const CHAT_POLL_MS = 10000;
+
+const jobKey = (job: { job_title: string; company: string }) => `${job.job_title}@@${job.company}`;
 
 const containerVariants: Variants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.08 } } };
 const itemVariants: Variants = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 110, damping: 16 } } };
@@ -37,6 +41,7 @@ const STATUS_BADGE: Record<string, { cls: string; label: string }> = {
 };
 
 export default function Student({ activeMenu, setActiveMenu, showToast }: { activeMenu: string, setActiveMenu: (m: string) => void, showToast: (msg: string, type: 'success'|'error'|'info') => void }) {
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatar, setAvatar] = useState<string | null>(null);
   const [profileData, setProfileData] = useState(emptyStudentProfile);
   const [profileLoading, setProfileLoading] = useState(true);
@@ -53,9 +58,13 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
   const [myApps, setMyApps] = useState<Application[]>([]);
   const [appsLoading, setAppsLoading] = useState(true);
   const [swipeDirection, setSwipeDirection] = useState<'left' | 'right' | null>(null);
+  // Jobs the student swiped away stay hidden for the whole session, so they do
+  // not reappear when the menu is switched and the matches are refetched.
+  const passedJobsRef = useRef<Set<string>>(new Set());
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
-  const [typedMessage, setTypedMessage] = useState<string>('');
+  // One draft per application, so several open chat rooms never share text.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [aiContent, setAiContent] = useState<{ [key: string]: { type: string, data: string } }>({});
   const [aiLoading, setAiLoading] = useState(false);
 
@@ -107,6 +116,15 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
 
   useEffect(() => { fetchApplications(); }, [activeMenu, profileData.firstName]);
 
+  // Drops jobs already applied to and jobs swiped away in this session, then
+  // orders the deck by match quality.
+  const buildJobDeck = (jobs: JobMatch[]) => {
+    const appliedTitles = myApps.map(a => a.job_title);
+    return jobs
+      .filter((job) => !appliedTitles.includes(job.job_title) && !passedJobsRef.current.has(jobKey(job)))
+      .sort((a, b) => b.match_percentage - a.match_percentage);
+  };
+
   useEffect(() => {
     if (activeMenu === '2' && skills.length > 0) {
       apiJson('/api/match-jobs', {
@@ -114,9 +132,7 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
         body: JSON.stringify({ skills }),
       }).then((matchData) => {
         if (Array.isArray(matchData)) {
-          const appliedTitles = myApps.map(a => a.job_title);
-          const freshJobs = matchData.filter((job: JobMatch) => !appliedTitles.includes(job.job_title));
-          setMatchedJobs(freshJobs.sort((a, b) => b.match_percentage - a.match_percentage));
+          setMatchedJobs(buildJobDeck(matchData));
         }
       }).catch((err) => { setLoadError(friendlyApiError(err, 'ค้นหางานที่เหมาะกับคุณไม่สำเร็จ')); });
     }
@@ -125,10 +141,19 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
   useEffect(() => {
     if (!activeChatId) return;
     const fetchChat = () => apiJson(`/api/chat/messages?application_id=${encodeURIComponent(activeChatId)}`).then((data) => setChatMessages(data || [])).catch((err) => { setLoadError(friendlyApiError(err, 'โหลดข้อความแชทไม่สำเร็จ')); });
-    fetchChat(); const interval = setInterval(fetchChat, 2000); return () => clearInterval(interval);
+    fetchChat(); const interval = setInterval(fetchChat, CHAT_POLL_MS); return () => clearInterval(interval);
   }, [activeChatId]);
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files && e.target.files[0]) setAvatar(URL.createObjectURL(e.target.files[0])); };
+  // The preview URL is derived from the selected file, so it survives every
+  // other state change and is revoked only when the file is replaced.
+  useEffect(() => {
+    if (!avatarFile) return;
+    const objectUrl = URL.createObjectURL(avatarFile);
+    setAvatar(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [avatarFile]);
+
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => { const picked = e.target.files?.[0]; if (picked) setAvatarFile(picked); };
 
   const handleSaveProfile = async () => {
     setProfileSaving(true);
@@ -178,9 +203,7 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
         body: JSON.stringify({ skills: newSkills }),
       });
       if (Array.isArray(matchData)) {
-        const appliedTitles = myApps.map(a => a.job_title);
-        const freshJobs = matchData.filter((job: JobMatch) => !appliedTitles.includes(job.job_title));
-        setMatchedJobs(freshJobs.sort((a: JobMatch, b: JobMatch) => b.match_percentage - a.match_percentage));
+        setMatchedJobs(buildJobDeck(matchData));
       }
       showToast('AI ค้นหางานที่เหมาะสมเสร็จสมบูรณ์!', 'success');
     } catch (e) { console.error(e); showToast(friendlyApiError(e, 'มีปัญหาตอนโหลดรายชื่องาน'), 'error'); } finally { setLoading(false); }
@@ -188,6 +211,9 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
 
   const handleSwipe = (type: 'apply' | 'pass', job: JobMatch) => {
     setSwipeDirection(type === 'apply' ? 'right' : 'left');
+    if (type === 'pass') {
+      passedJobsRef.current.add(jobKey(job));
+    }
     if (type === 'apply') {
       apiJson('/api/apply', {
         method: 'POST',
@@ -200,25 +226,42 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
     setTimeout(() => { setMatchedJobs(prev => prev.slice(1)); setSwipeDirection(null); }, 300);
   };
 
+  const draftOf = (appId: string) => drafts[appId] || '';
+  const setDraft = (appId: string, text: string) => setDrafts((current) => ({ ...current, [appId]: text }));
+
   const handleSendChat = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!typedMessage.trim() || !activeChatId) return;
+    e.preventDefault();
+    const threadId = activeChatId;
+    if (!threadId) return;
+    const text = draftOf(threadId).trim();
+    if (!text) return;
     try {
-      await apiJson('/api/chat/send', { method: 'POST', body: JSON.stringify({ application_id: activeChatId, text: typedMessage.trim() }) });
-      setTypedMessage('');
+      await apiJson('/api/chat/send', { method: 'POST', body: JSON.stringify({ application_id: threadId, text }) });
+      setDraft(threadId, '');
     } catch (err) {
       showToast(friendlyApiError(err, 'ส่งข้อความไม่สำเร็จ'), 'error');
     }
   };
 
   const generateAI = async (type: 'email' | 'interview', app: Application) => {
-    setAiLoading(true); setAiContent({ ...aiContent, [app.id]: { type, data: 'กำลังวิเคราะห์และประมวลผลด้วย AI...' } });
+    setAiLoading(true);
+    setAiContent((current) => ({ ...current, [app.id]: { type, data: 'กำลังวิเคราะห์และประมวลผลด้วย AI...' } }));
     const endpoint = type === 'email' ? 'generate-email' : 'generate-questions';
-    const body = type === 'email' ? { name: app.name, job_title: app.job_title, company: app.company, skills: [] } : { job_title: app.job_title };
+    const body = type === 'email'
+      ? { name: app.name, job_title: app.job_title, company: app.company, skills: skills.map(s => s.name) }
+      : { job_title: app.job_title };
     try {
       const data = await apiJson(`/api/${endpoint}`, { method: 'POST', body: JSON.stringify(body) });
-      setAiContent({ ...aiContent, [app.id]: { type, data: type === 'email' ? data.email : data.questions } });
+      setAiContent((current) => ({ ...current, [app.id]: { type, data: type === 'email' ? data.email : data.questions } }));
       showToast('ประมวลผลเสร็จสมบูรณ์!', 'success');
-    } catch (e) { showToast(friendlyApiError(e, 'การประมวลผลล้มเหลว'), 'error'); } finally { setAiLoading(false); }
+    } catch (e) {
+      setAiContent((current) => {
+        const next = { ...current };
+        delete next[app.id];
+        return next;
+      });
+      showToast(friendlyApiError(e, 'การประมวลผลล้มเหลว'), 'error');
+    } finally { setAiLoading(false); }
   };
 
   const pendingAppsCount = myApps.filter(a => a.status === 'Pending').length;
@@ -615,8 +658,11 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
                             >
                               <IconChat /> คุยกับบริษัท
                             </button>
-                            <button type="button" onClick={() => generateAI('email', app)} className="btn btn-brand-soft btn-sm">
+                            <button type="button" onClick={() => generateAI('email', app)} disabled={aiLoading} className="btn btn-brand-soft btn-sm">
                               <IconSparkles /> ร่างอีเมล
+                            </button>
+                            <button type="button" onClick={() => generateAI('interview', app)} disabled={aiLoading} className="btn btn-brand-soft btn-sm">
+                              <IconSparkles /> คลังคำถามสัมภาษณ์ AI
                             </button>
                             <button
                               type="button"
@@ -651,8 +697,8 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
                             </div>
                             <form onSubmit={handleSendChat} className="flex gap-2 border-t border-line bg-surface p-3">
                               <label htmlFor={`chat-${app.id}`} className="sr-only">ข้อความ</label>
-                              <input id={`chat-${app.id}`} type="text" value={typedMessage} onChange={(e) => setTypedMessage(e.target.value)} placeholder="พิมพ์ข้อความ..." className="input py-2.5" />
-                              <button type="submit" disabled={!typedMessage.trim()} className="btn btn-neutral btn-sm shrink-0">ส่ง</button>
+                              <input id={`chat-${app.id}`} type="text" value={draftOf(app.id)} onChange={(e) => setDraft(app.id, e.target.value)} placeholder="พิมพ์ข้อความ..." className="input py-2.5" />
+                              <button type="submit" disabled={!draftOf(app.id).trim()} className="btn btn-neutral btn-sm shrink-0">ส่ง</button>
                             </form>
                           </motion.div>
                         )}

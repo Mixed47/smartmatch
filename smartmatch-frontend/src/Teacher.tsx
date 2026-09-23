@@ -5,9 +5,9 @@ import { apiJson, friendlyApiError } from './apiClient';
 import TeacherPetitions, { petitionError, resolveTeacherPetition } from './TeacherPetitions';
 import { EmptyState, PageHeading, SkeletonList, Spinner } from './ui';
 
-interface Application { id: string; name: string; job_title: string; company: string; status: string; }
+interface Application { id: string; name: string; job_title: string; company: string; status: string; student_id?: number; }
 interface Message { id: number; application_id: string; sender: string; text: string; created_at: string; }
-interface Logbook { id: number; name: string; category: string; activity: string; blocker: string; created_at: string; date?: string; }
+interface Logbook { id: number; student_id?: number; name: string; category: string; activity: string; blocker: string; created_at: string; date?: string; }
 interface CriticalLogbook {
   id: number;
   student_id?: number;
@@ -29,6 +29,17 @@ const containerVariants: Variants = { hidden: { opacity: 0 }, show: { opacity: 1
 const itemVariants: Variants = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 110, damping: 16 } } };
 const formatThaiDate = (dateString: string) => { if (!dateString) return ''; return new Date(dateString).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' }); };
 
+// Dashboard data refreshes on a timer; 15s keeps the view current without
+// hammering the API the way a 3s poll did.
+const DASHBOARD_POLL_MS = 15000;
+const CHAT_POLL_MS = 10000;
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+// Local calendar date (not UTC): toISOString() shifts the day by one in
+// Bangkok time, which used to misalign the heatmap against logbook dates.
+const toLocalISODate = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+
 const STATUS_BADGE: Record<string, { cls: string; label: string }> = {
   Matched: { cls: 'badge-success', label: 'Matched' },
   Canceled: { cls: 'badge-neutral', label: 'สละสิทธิ์แล้ว' },
@@ -45,7 +56,9 @@ export default function Teacher({ activeMenu, showToast, openInbox }: { activeMe
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
-  const [typedMessage, setTypedMessage] = useState('');
+  // One draft per chat thread, so opening another room never shows the text
+  // typed in the previous one.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [logs, setLogs] = useState<Logbook[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [criticalLogs, setCriticalLogs] = useState<CriticalLogbook[]>([]);
@@ -113,21 +126,28 @@ export default function Teacher({ activeMenu, showToast, openInbox }: { activeMe
   useEffect(() => {
     loadCriticalAlerts(true);
     loadData();
-    const interval = setInterval(loadData, 3000);
+    const interval = setInterval(loadData, DASHBOARD_POLL_MS);
     return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
     if (!activeChatId) return;
     const fetchChat = () => apiJson(`/api/chat/messages?application_id=${encodeURIComponent(activeChatId)}`).then((data) => setChatMessages(data || [])).catch(() => {});
-    fetchChat(); const interval = setInterval(fetchChat, 2000); return () => clearInterval(interval);
+    fetchChat(); const interval = setInterval(fetchChat, CHAT_POLL_MS); return () => clearInterval(interval);
   }, [activeChatId]);
 
+  const draftOf = (threadId: string) => drafts[threadId] || '';
+  const setDraft = (threadId: string, text: string) => setDrafts((current) => ({ ...current, [threadId]: text }));
+
   const handleSendChat = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!typedMessage.trim() || !activeChatId) return;
+    e.preventDefault();
+    const threadId = activeChatId;
+    if (!threadId) return;
+    const text = draftOf(threadId).trim();
+    if (!text) return;
     try {
-      await apiJson('/api/chat/send', { method: 'POST', body: JSON.stringify({ application_id: activeChatId, text: typedMessage.trim() }) });
-      setTypedMessage('');
+      await apiJson('/api/chat/send', { method: 'POST', body: JSON.stringify({ application_id: threadId, text }) });
+      setDraft(threadId, '');
     } catch (err) {
       notify(friendlyApiError(err, 'ส่งข้อความไม่สำเร็จ'), 'error');
     }
@@ -169,18 +189,27 @@ export default function Teacher({ activeMenu, showToast, openInbox }: { activeMe
     }
   };
 
-  const studentLogsOf = (studentName: string) => logs.filter((l) => l.name.includes(studentName.split(' ')[0]));
+  // Entries are matched by student_id, falling back to an exact name match so
+  // that searching "สม" never pulls in "สมชาย".
+  const studentLogsOf = (app: Application) => {
+    const name = app.name.trim();
+    return logs.filter((l) => (
+      app.student_id && l.student_id
+        ? l.student_id === app.student_id
+        : l.name.trim() === name
+    ));
+  };
 
-  const generateTeacherHeatmap = (studentName: string) => {
-    const days = []; const today = new Date(); const studentLogs = studentLogsOf(studentName);
+  const generateTeacherHeatmap = (app: Application) => {
+    const days = []; const today = new Date(); const studentLogs = studentLogsOf(app);
     for (let i = 29; i >= 0; i--) {
-      const d = new Date(today); d.setDate(today.getDate() - i); const dateStr = d.toISOString().split('T')[0];
+      const d = new Date(today); d.setDate(today.getDate() - i); const dateStr = toLocalISODate(d);
       days.push({ date: dateStr, hasLog: studentLogs.some(log => log.date === dateStr || log.created_at === dateStr) });
     }
     return days;
   };
 
-  const checkIssues = (studentName: string) => studentLogsOf(studentName).some((log) => log.blocker && log.blocker.trim() !== '');
+  const checkIssues = (app: Application) => studentLogsOf(app).some((log) => log.blocker && log.blocker.trim() !== '');
 
   const total = new Set(applications.map(a => a.name)).size;
   const matched = applications.filter(a => a.status === 'Matched' || a.status === 'Completed').length;
@@ -353,10 +382,10 @@ export default function Teacher({ activeMenu, showToast, openInbox }: { activeMe
                 )}
 
                 {applications.map((app, index) => {
-                  const hasIssue = checkIssues(app.name);
+                  const hasIssue = checkIssues(app);
                   const ev = evaluations.find(e => e.application_id === app.id);
                   const badge = STATUS_BADGE[app.status] || { cls: 'badge-neutral', label: app.status };
-                  const entries = studentLogsOf(app.name);
+                  const entries = studentLogsOf(app);
 
                   return (
                     <motion.div
@@ -428,7 +457,7 @@ export default function Teacher({ activeMenu, showToast, openInbox }: { activeMe
                               <div className="border-b border-line p-4 sm:p-5 lg:w-1/3 lg:border-b-0 lg:border-r">
                                 <p className="eyebrow mb-3">ปฏิทินการบันทึก (30 วัน)</p>
                                 <div className="grid grid-cols-7 gap-1.5">
-                                  {generateTeacherHeatmap(app.name).map((day, i) => (
+                                  {generateTeacherHeatmap(app).map((day, i) => (
                                     <div
                                       key={i}
                                       title={`${formatThaiDate(day.date)}${day.hasLog ? ' · จดแล้ว' : ' · ไม่มีบันทึก'}`}
@@ -490,8 +519,8 @@ export default function Teacher({ activeMenu, showToast, openInbox }: { activeMe
                             </div>
                             <form onSubmit={handleSendChat} className="flex gap-2 border-t border-line bg-surface p-3">
                               <label htmlFor={`teacher-chat-${app.id}`} className="sr-only">ข้อความ</label>
-                              <input id={`teacher-chat-${app.id}`} type="text" value={typedMessage} onChange={(e) => setTypedMessage(e.target.value)} placeholder="พิมพ์ข้อความ..." className="input py-2.5" />
-                              <button type="submit" disabled={!typedMessage.trim()} className="btn btn-neutral btn-sm shrink-0">ส่ง</button>
+                              <input id={`teacher-chat-${app.id}`} type="text" value={draftOf(`${app.id}-TH`)} onChange={(e) => setDraft(`${app.id}-TH`, e.target.value)} placeholder="พิมพ์ข้อความ..." className="input py-2.5" />
+                              <button type="submit" disabled={!draftOf(`${app.id}-TH`).trim()} className="btn btn-neutral btn-sm shrink-0">ส่ง</button>
                             </form>
                           </motion.div>
                         )}

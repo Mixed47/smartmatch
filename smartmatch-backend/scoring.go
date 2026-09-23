@@ -97,6 +97,25 @@ var freelanceKeywords = []string{
 	"จ้างทำ",
 }
 
+var workExperienceKeywords = []string{
+	"work experience",
+	"internship",
+	"intern",
+	"full-time",
+	"fulltime",
+	"part-time",
+	"parttime",
+	"บริษัท",
+	"ประสบการณ์ทำงาน",
+	"ทำงานจริง",
+	"ทำงานที่",
+	"พนักงาน",
+	"ฝึกงาน",
+	"สหกิจ",
+	"สหกิจศึกษา",
+	"ลูกค้าองค์กร",
+}
+
 var seniorProjectKeywords = []string{
 	"senior project",
 	"thesis",
@@ -166,8 +185,18 @@ func looksCourseworkLevel(text string) bool {
 	return containsAnyKeyword(text, courseworkKeywords)
 }
 
+func looksWorkExperienceLevel(text string) bool {
+	return containsAnyKeyword(text, workExperienceKeywords)
+}
+
 func hasProductionOrFreelanceEvidence(text string) bool {
 	return looksProductionLevel(text) || looksFreelanceLevel(text)
+}
+
+// hasGradeSEvidence covers the three cases that justify grade S: freelance
+// work, a production deployment, and real work experience.
+func hasGradeSEvidence(text string) bool {
+	return hasProductionOrFreelanceEvidence(text) || looksWorkExperienceLevel(text)
 }
 
 func containsAnyKeyword(text string, keywords []string) bool {
@@ -288,7 +317,7 @@ func enforceCandidateSkillGrades(skills []SkillItem, evidenceTexts ...string) []
 				grade = "A"
 			case looksCourseworkLevel(evidence):
 				grade = "B"
-			case !hasProductionOrFreelanceEvidence(evidence):
+			case !hasGradeSEvidence(evidence):
 				grade = "A"
 			}
 		}

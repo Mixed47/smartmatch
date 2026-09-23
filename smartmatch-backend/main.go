@@ -71,11 +71,13 @@ type ChatMessage struct {
 }
 type LogbookEntry struct {
 	ID        int    `json:"id"`
+	StudentID int    `json:"student_id"`
 	Name      string `json:"name"`
 	Category  string `json:"category"`
 	Activity  string `json:"activity"`
 	Blocker   string `json:"blocker"`
 	CreatedAt string `json:"created_at"`
+	Date      string `json:"date"`
 }
 type ExtractJDRequest struct {
 	Text string `json:"text"`
@@ -366,6 +368,10 @@ func getCancelRequestsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		reqs = append(reqs, cr)
 	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read cancel requests")
+		return
+	}
 	writeJSON(w, http.StatusOK, reqs)
 }
 
@@ -446,6 +452,10 @@ func getEvaluationsHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		evals = append(evals, e)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read evaluations")
+		return
 	}
 	writeJSON(w, http.StatusOK, evals)
 }
@@ -784,10 +794,17 @@ func getApplicationsHandler(w http.ResponseWriter, r *http.Request) {
 		var a Applicant
 		var id int
 		var skillsStr string
-		rows.Scan(&id, &a.Name, &a.JobTitle, &a.Company, &a.MatchPercentage, &skillsStr, &a.ResumeURL, &a.Status)
+		if err := rows.Scan(&id, &a.Name, &a.JobTitle, &a.Company, &a.MatchPercentage, &skillsStr, &a.ResumeURL, &a.Status); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load applications")
+			return
+		}
 		a.ID = fmt.Sprintf("APP-%03d", id)
 		json.Unmarshal([]byte(skillsStr), &a.Skills)
 		apps = append(apps, a)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load applications")
+		return
 	}
 	writeJSON(w, http.StatusOK, apps)
 }
@@ -810,9 +827,16 @@ func getHRMatchesHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var app Applicant
 		var id int
-		rows.Scan(&id, &app.Name, &app.JobTitle, &app.Company, &app.MatchPercentage, &app.Status)
+		if err := rows.Scan(&id, &app.Name, &app.JobTitle, &app.Company, &app.MatchPercentage, &app.Status); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load matches")
+			return
+		}
 		app.ID = fmt.Sprintf("APP-%03d", id)
 		apps = append(apps, app)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load matches")
+		return
 	}
 	writeJSON(w, http.StatusOK, apps)
 }
@@ -838,9 +862,16 @@ func getMyApplicationsHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var app Applicant
 		var id int
-		rows.Scan(&id, &app.JobTitle, &app.Company, &app.Status, &app.Name, &app.StudentID)
+		if err := rows.Scan(&id, &app.JobTitle, &app.Company, &app.Status, &app.Name, &app.StudentID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load applications")
+			return
+		}
 		app.ID = fmt.Sprintf("APP-%03d", id)
 		myApps = append(myApps, app)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load applications")
+		return
 	}
 	writeJSON(w, http.StatusOK, myApps)
 }
@@ -848,19 +879,36 @@ func getMyApplicationsHandler(w http.ResponseWriter, r *http.Request) {
 func logbookHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" {
 		var l LogbookEntry
-		json.NewDecoder(r.Body).Decode(&l)
-		db.Exec("INSERT INTO logbooks (name, category, activity, blocker) VALUES (?, ?, ?, ?)", l.Name, l.Category, l.Activity, l.Blocker)
-		fmt.Fprintf(w, `{"success": true}`)
+		if err := json.NewDecoder(r.Body).Decode(&l); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON body")
+			return
+		}
+		if _, err := db.Exec("INSERT INTO logbooks (name, category, activity, blocker) VALUES (?, ?, ?, ?)", l.Name, l.Category, l.Activity, l.Blocker); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to save logbook entry")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 	} else if r.Method == "GET" {
 		logs := []LogbookEntry{}
-		rows, _ := db.Query("SELECT id, name, category, activity, blocker, DATE_FORMAT(created_at, '%Y-%m-%d') FROM logbooks ORDER BY id DESC")
+		rows, err := db.Query("SELECT id, name, category, activity, blocker, DATE_FORMAT(created_at, '%Y-%m-%d') FROM logbooks ORDER BY id DESC")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load logbook")
+			return
+		}
 		defer rows.Close()
 		for rows.Next() {
 			var l LogbookEntry
-			rows.Scan(&l.ID, &l.Name, &l.Category, &l.Activity, &l.Blocker, &l.CreatedAt)
+			if err := rows.Scan(&l.ID, &l.Name, &l.Category, &l.Activity, &l.Blocker, &l.CreatedAt); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to load logbook")
+				return
+			}
 			logs = append(logs, l)
 		}
-		json.NewEncoder(w).Encode(logs)
+		if err := rows.Err(); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load logbook")
+			return
+		}
+		writeJSON(w, http.StatusOK, logs)
 	}
 }
 
@@ -885,9 +933,16 @@ func postJobHandler(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var j JobResponse
 			var skillsStr string
-			rows.Scan(&j.Title, &j.Company, &skillsStr)
+			if err := rows.Scan(&j.Title, &j.Company, &skillsStr); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to load jobs")
+				return
+			}
 			json.Unmarshal([]byte(skillsStr), &j.Skills)
 			jobs = append(jobs, j)
+		}
+		if err := rows.Err(); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load jobs")
+			return
 		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{"data": jobs})
 		return
@@ -946,9 +1001,16 @@ func getChatMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var m ChatMessage
 		var t time.Time
-		rows.Scan(&m.ID, &m.ApplicationID, &m.Sender, &m.Text, &t)
+		if err := rows.Scan(&m.ID, &m.ApplicationID, &m.Sender, &m.Text, &t); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load messages")
+			return
+		}
 		m.CreatedAt = t.Local().Format("15:04 น.")
 		msgs = append(msgs, m)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load messages")
+		return
 	}
 	writeJSON(w, http.StatusOK, msgs)
 }
@@ -987,10 +1049,14 @@ func generateEmailHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"email": aiText})
 }
 
-// allowedOrigins reads CORS_ALLOWED_ORIGINS ("*" or a comma separated list).
+const defaultAllowedOrigin = "http://localhost:5173"
+
+// allowedOrigins reads CORS_ALLOWED_ORIGINS (a comma separated list, or "*" to
+// opt out of the allow list explicitly). It defaults to the local Vite dev
+// server so that no deployment serves a wildcard by accident.
 func allowedOrigins() map[string]bool {
 	allowed := map[string]bool{}
-	for _, origin := range strings.Split(envOrDefault("CORS_ALLOWED_ORIGINS", "*"), ",") {
+	for _, origin := range strings.Split(envOrDefault("CORS_ALLOWED_ORIGINS", defaultAllowedOrigin), ",") {
 		if origin = strings.TrimRight(strings.TrimSpace(origin), "/"); origin != "" {
 			allowed[origin] = true
 		}

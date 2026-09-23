@@ -78,6 +78,20 @@ func TestEnforceCandidateSkillGradesDowngradesInvalidS(t *testing.T) {
 	}
 }
 
+func TestEnforceCandidateSkillGradesKeepsAllThreeSCases(t *testing.T) {
+	cases := map[string]string{
+		"freelance":       "รับจ้างทำเว็บให้ลูกค้า",
+		"production":      "Deploy ขึ้นระบบจริงให้ผู้ใช้งานจริง",
+		"work experience": "ประสบการณ์ทำงานจริงที่บริษัทซอฟต์แวร์",
+	}
+	for name, evidence := range cases {
+		got := enforceCandidateSkillGrades([]SkillItem{{Name: "Go", Grade: "S", Source: evidence}})
+		if !hasSkillGrade(got, "Go", "S") {
+			t.Fatalf("%s evidence must keep grade S, got %+v", name, got)
+		}
+	}
+}
+
 func TestNormalizeLetterGrade(t *testing.T) {
 	if normalizeLetterGrade("s") != "S" {
 		t.Fatal("expected S")

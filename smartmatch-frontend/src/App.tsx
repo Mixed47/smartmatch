@@ -367,7 +367,11 @@ function Dashboard({ initialRole }: { initialRole: 'student' | 'company' | 'teac
                   aria-expanded={showNotif}
                 >
                   <IconBell />
-                  <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full border-2 border-surface bg-rose-500" aria-hidden="true" />
+                  {/* The dot mirrors the real unread counter, so it never lights
+                      up without an actual notification behind it. */}
+                  {unreadMessages > 0 && (
+                    <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full border-2 border-surface bg-rose-500" aria-hidden="true" />
+                  )}
                 </button>
                 <AnimatePresence>
                   {showNotif && (
@@ -381,13 +385,21 @@ function Dashboard({ initialRole }: { initialRole: 'student' | 'company' | 'teac
                         <h4 className="card-title">การแจ้งเตือน</h4>
                       </div>
                       <div className="space-y-3 p-4">
-                        <div className="flex items-start gap-3 rounded-xl bg-brand-50 p-3 dark:bg-brand-500/10">
-                          <span className="mt-0.5 text-brand-600 dark:text-brand-400"><IconSparkles /></span>
-                          <div>
-                            <p className="text-sm font-semibold text-ink">ระบบ AI อัปเดตใหม่</p>
-                            <p className="mt-0.5 text-xs text-ink-muted">อัปเดตข้อมูลและแก้ไขโปรไฟล์ได้แล้ว</p>
-                          </div>
-                        </div>
+                        {unreadMessages > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => { setShowNotif(false); openInbox(); }}
+                            className="flex w-full items-start gap-3 rounded-xl bg-brand-50 p-3 text-left transition hover:bg-brand-100 dark:bg-brand-500/10 dark:hover:bg-brand-500/20"
+                          >
+                            <span className="mt-0.5 text-brand-600 dark:text-brand-400"><IconSparkles /></span>
+                            <span>
+                              <span className="block text-sm font-semibold text-ink">ข้อความใหม่ {unreadMessages > 99 ? '99+' : unreadMessages} รายการ</span>
+                              <span className="mt-0.5 block text-xs text-ink-muted">กดเพื่อเปิดกล่องข้อความ</span>
+                            </span>
+                          </button>
+                        ) : (
+                          <p className="py-2 text-center text-sm text-ink-muted">ยังไม่มีการแจ้งเตือนใหม่</p>
+                        )}
                       </div>
                     </motion.div>
                   )}

@@ -202,6 +202,7 @@ func ListMyLogbookHandler(w http.ResponseWriter, r *http.Request) {
 func listTeacherLogbooks(w http.ResponseWriter) {
 	rows, err := db.Query(
 		`SELECT e.id,
+		        e.student_id,
 		        COALESCE((SELECT name FROM applications WHERE student_id = e.student_id ORDER BY id DESC LIMIT 1), u.email),
 		        e.tasks,
 		        IFNULL(e.blocker, ''),
@@ -219,11 +220,14 @@ func listTeacherLogbooks(w http.ResponseWriter) {
 	logs := []LogbookEntry{}
 	for rows.Next() {
 		var l LogbookEntry
-		if err := rows.Scan(&l.ID, &l.Name, &l.Activity, &l.Blocker, &l.CreatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.StudentID, &l.Name, &l.Activity, &l.Blocker, &l.CreatedAt); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to read logbook entries")
 			return
 		}
 		l.Category = "Daily"
+		// created_at carries the entry date so the teacher heatmap can key on
+		// either field without a second query.
+		l.Date = l.CreatedAt
 		logs = append(logs, l)
 	}
 	writeJSON(w, http.StatusOK, logs)

@@ -17,11 +17,38 @@ const IconSparkles = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7
 const containerVariants: Variants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.08 } } };
 const itemVariants: Variants = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 110, damping: 16 } } };
 
+// HR lists refresh on a timer; 15s is responsive enough without flooding the
+// API the way the old 3s poll did.
+const LIST_POLL_MS = 15000;
+const CHAT_POLL_MS = 10000;
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const localDateStamp = () => { const d = new Date(); return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}`; };
+
+const escapeCsvCell = (value: unknown) => {
+  const text = String(value ?? '');
+  return /["\n\r,]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+};
+
+// Excel needs the UTF-8 BOM to render Thai characters correctly.
+const downloadCsv = (filename: string, rows: unknown[][]) => {
+  const csv = rows.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
 const WEIGHT_LEVELS: Array<ParsedSkill['weight']> = ['STANDARD', 'IMPORTANT', 'CRITICAL'];
 const WEIGHT_LABEL: Record<string, string> = { STANDARD: 'ทั่วไป', IMPORTANT: 'สำคัญ', CRITICAL: 'จำเป็นมาก' };
 const WEIGHT_BADGE: Record<string, string> = { STANDARD: 'badge-neutral', IMPORTANT: 'badge-brand', CRITICAL: 'badge-danger' };
 
 export default function Company({ activeMenu, setActiveMenu, showToast }: { activeMenu: string, setActiveMenu: (m: string) => void, showToast: (msg: string, type: 'success' | 'error' | 'info') => void }) {
+  const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logo, setLogo] = useState<string | null>(null);
   const [profileData, setProfileData] = useState({ companyName: '', industry: '', location: '', website: '', culture: '' });
   const [profileLoading, setProfileLoading] = useState(true);
@@ -40,7 +67,9 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
   const [swipeDirection, setSwipeDirection] = useState<'left' | 'right' | null>(null);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
-  const [typedMessage, setTypedMessage] = useState('');
+  // One draft per chat thread so switching between the student and the teacher
+  // room never carries the other room's text over.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   const [myPostedJobs, setMyPostedJobs] = useState<any[]>([]);
   const [evalModal, setEvalModal] = useState({ show: false, appId: '', studentName: '' });
@@ -85,7 +114,7 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
         .finally(() => setApplicantsLoading(false));
     };
     if (activeMenu === '5' || activeMenu === 'hr-home') fetchApps();
-    const interval = setInterval(() => { if (activeMenu === '5' || activeMenu === 'hr-home') fetchApps(); }, 3000);
+    const interval = setInterval(() => { if (activeMenu === '5' || activeMenu === 'hr-home') fetchApps(); }, LIST_POLL_MS);
     return () => clearInterval(interval);
   }, [activeMenu]);
 
@@ -97,7 +126,7 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
         .finally(() => setMatchesLoading(false));
     };
     if (activeMenu === '6' || activeMenu === 'hr-home') fetchMatches();
-    const interval = setInterval(fetchMatches, 3000); return () => clearInterval(interval);
+    const interval = setInterval(fetchMatches, LIST_POLL_MS); return () => clearInterval(interval);
   }, [activeMenu]);
 
   const currentResumeUrl = applicants[0]?.resume_url || '';
@@ -122,10 +151,19 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
   useEffect(() => {
     if (!activeChatId) return;
     const fetchChat = () => apiJson(`/api/chat/messages?application_id=${encodeURIComponent(activeChatId)}`).then((data) => setChatMessages(data || [])).catch(() => {});
-    fetchChat(); const interval = setInterval(fetchChat, 2000); return () => clearInterval(interval);
+    fetchChat(); const interval = setInterval(fetchChat, CHAT_POLL_MS); return () => clearInterval(interval);
   }, [activeChatId]);
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files && e.target.files[0]) setLogo(URL.createObjectURL(e.target.files[0])); };
+  // The preview URL is derived from the selected file, so it survives every
+  // other state change and is revoked only when the file is replaced.
+  useEffect(() => {
+    if (!logoFile) return;
+    const objectUrl = URL.createObjectURL(logoFile);
+    setLogo(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [logoFile]);
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => { const picked = e.target.files?.[0]; if (picked) setLogoFile(picked); };
 
   const handleSaveProfile = async () => {
     setProfileSaving(true);
@@ -187,14 +225,33 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
     setTimeout(() => { setApplicants(prev => prev.slice(1)); setSwipeDirection(null); }, 300);
   };
 
+  const draftOf = (threadId: string) => drafts[threadId] || '';
+  const setDraft = (threadId: string, text: string) => setDrafts((current) => ({ ...current, [threadId]: text }));
+
   const handleSendChat = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!typedMessage.trim() || !activeChatId) return;
+    e.preventDefault();
+    const threadId = activeChatId;
+    if (!threadId) return;
+    const text = draftOf(threadId).trim();
+    if (!text) return;
     try {
-      await apiJson('/api/chat/send', { method: 'POST', body: JSON.stringify({ application_id: activeChatId, text: typedMessage.trim() }) });
-      setTypedMessage('');
+      await apiJson('/api/chat/send', { method: 'POST', body: JSON.stringify({ application_id: threadId, text }) });
+      setDraft(threadId, '');
     } catch (err) {
       showToast(friendlyApiError(err, 'ส่งข้อความไม่สำเร็จ'), 'error');
     }
+  };
+
+  const exportMatchesToCsv = () => {
+    if (matchedList.length === 0) {
+      showToast('ยังไม่มีผู้สมัครที่ Match ให้ส่งออก', 'error');
+      return;
+    }
+    downloadCsv(`matched-candidates-${localDateStamp()}.csv`, [
+      ['รหัสใบสมัคร', 'ชื่อนักศึกษา', 'ตำแหน่งงาน', 'บริษัท', 'ความตรงกัน (%)', 'สถานะ'],
+      ...matchedList.map((m) => [m.id, m.name, m.job_title, m.company, m.match_percentage, m.status]),
+    ]);
+    showToast(`ส่งออกข้อมูล ${matchedList.length} รายการเป็นไฟล์ CSV แล้ว`, 'success');
   };
 
   const submitEvaluation = () => {
@@ -583,7 +640,7 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
                 title="ผู้สมัครที่ Match แล้ว"
                 subtitle="ติดต่อนักศึกษา ประสานอาจารย์นิเทศ และประเมินผลการฝึกงาน"
                 actions={
-                  <button type="button" onClick={() => showToast('เริ่มดาวน์โหลดไฟล์ CSV แล้ว', 'info')} className="btn btn-neutral btn-sm">
+                  <button type="button" onClick={exportMatchesToCsv} disabled={matchesLoading || matchedList.length === 0} className="btn btn-neutral btn-sm">
                     ส่งออก CSV
                   </button>
                 }
@@ -658,8 +715,8 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
                           </div>
                           <form onSubmit={handleSendChat} className="flex gap-2 border-t border-line bg-surface p-3">
                             <label htmlFor={`hr-chat-${match.id}`} className="sr-only">ข้อความ</label>
-                            <input id={`hr-chat-${match.id}`} type="text" placeholder="พิมพ์ข้อความตอบกลับ..." value={typedMessage} onChange={(e) => setTypedMessage(e.target.value)} className="input py-2.5" />
-                            <button type="submit" disabled={!typedMessage.trim()} className="btn btn-neutral btn-sm shrink-0">ส่ง</button>
+                            <input id={`hr-chat-${match.id}`} type="text" placeholder="พิมพ์ข้อความตอบกลับ..." value={draftOf(activeChatId)} onChange={(e) => setDraft(activeChatId, e.target.value)} className="input py-2.5" />
+                            <button type="submit" disabled={!draftOf(activeChatId).trim()} className="btn btn-neutral btn-sm shrink-0">ส่ง</button>
                           </form>
                         </motion.div>
                       )}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -449,19 +450,47 @@ func getEvaluationsHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, evals)
 }
 
+// geminiTotalTimeout caps one AI request end to end (model fallback loop
+// included). It stays under the 70s client abort so the backend never keeps
+// working on a response the browser already gave up on.
+const geminiTotalTimeout = 55 * time.Second
+
+// geminiAttemptTimeout stops a single slow model from eating the whole budget.
+const geminiAttemptTimeout = 30 * time.Second
+
+// writeAIError maps a Gemini failure to 504 on timeout and 500 otherwise, so the
+// frontend never receives HTTP 200 with a null body.
+func writeAIError(w http.ResponseWriter, scope string, err error) {
+	log.Printf("%s gemini: %v", scope, err)
+	if isTimeoutErr(err) {
+		writeError(w, http.StatusGatewayTimeout, "AI request timed out")
+		return
+	}
+	writeError(w, http.StatusInternalServerError, "AI Error: ระบบ AI ไม่ตอบสนอง กรุณาลองใหม่อีกครั้ง")
+}
+
 func callGeminiAPI(prompt string, base64Data string, mimeType string) (string, error) {
-	return callGeminiGenerate(prompt, base64Data, mimeType, false)
+	ctx, cancel := context.WithTimeout(context.Background(), geminiTotalTimeout)
+	defer cancel()
+	return callGeminiGenerate(ctx, prompt, base64Data, mimeType, false)
 }
 
 func callGeminiJSON(prompt string) (string, error) {
-	text, err := callGeminiGenerate(prompt, "", "", true)
+	ctx, cancel := context.WithTimeout(context.Background(), geminiTotalTimeout)
+	defer cancel()
+
+	text, err := callGeminiGenerate(ctx, prompt, "", "", true)
 	if err == nil {
 		return text, nil
 	}
-	return callGeminiGenerate(prompt, "", "", false)
+	// The plain-text retry shares the same deadline instead of starting a new one.
+	if ctx.Err() != nil {
+		return "", err
+	}
+	return callGeminiGenerate(ctx, prompt, "", "", false)
 }
 
-func callGeminiGenerate(prompt string, base64Data string, mimeType string, jsonMode bool) (string, error) {
+func callGeminiGenerate(ctx context.Context, prompt string, base64Data string, mimeType string, jsonMode bool) (string, error) {
 	apiKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
 	if apiKey == "" {
 		return "", fmt.Errorf("GEMINI_API_KEY is not configured")
@@ -470,6 +499,12 @@ func callGeminiGenerate(prompt string, base64Data string, mimeType string, jsonM
 	models := []string{"gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"}
 	var lastErr error
 	for _, modelName := range models {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			if lastErr == nil {
+				lastErr = ctxErr
+			}
+			return "", fmt.Errorf("gemini deadline exceeded: %v", lastErr)
+		}
 		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, apiKey)
 		parts := []map[string]interface{}{{"text": prompt}}
 
@@ -494,19 +529,22 @@ func callGeminiGenerate(prompt string, base64Data string, mimeType string, jsonM
 		if err != nil {
 			return "", err
 		}
-		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+		attemptCtx, cancelAttempt := context.WithTimeout(ctx, geminiAttemptTimeout)
+		req, err := http.NewRequestWithContext(attemptCtx, "POST", url, bytes.NewBuffer(jsonData))
 		if err != nil {
+			cancelAttempt()
 			return "", err
 		}
 		req.Header.Set("Content-Type", "application/json")
-		client := &http.Client{Timeout: 60 * time.Second}
-		resp, err := client.Do(req)
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
+			cancelAttempt()
 			lastErr = err
 			continue
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		cancelAttempt()
 		if resp.StatusCode != http.StatusOK {
 			lastErr = fmt.Errorf("%s: %s", modelName, strings.TrimSpace(string(body)))
 			continue
@@ -574,8 +612,7 @@ func extractSkillsGradedHandler(w http.ResponseWriter, r *http.Request) {
 	promptText := candidateScoringPrompt(expText)
 	aiText, err := callGeminiAPI(promptText, base64Data, mimeType)
 	if err != nil {
-		log.Printf("extract-skills-graded gemini: %v", err)
-		writeError(w, http.StatusInternalServerError, "AI skill extraction failed")
+		writeAIError(w, "extract-skills-graded", err)
 		return
 	}
 
@@ -588,7 +625,7 @@ func extractSkillsGradedHandler(w http.ResponseWriter, r *http.Request) {
 	skills = enforceCandidateSkillGrades(skills, expText)
 
 	if len(fileBytes) > 0 {
-		filename := fmt.Sprintf("%d_%d_resume.png", userID, time.Now().Unix())
+		filename := fmt.Sprintf("%d_%d_resume%s", userID, time.Now().Unix(), uploadExtension(mimeType))
 		out, createErr := os.Create("./uploads/" + filename)
 		if createErr == nil {
 			_, _ = out.Write(fileBytes)
@@ -613,12 +650,27 @@ func extractJDHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req ExtractJDRequest
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if strings.TrimSpace(req.Text) == "" {
+		writeError(w, http.StatusBadRequest, "text is required")
+		return
+	}
 	promptText := fmt.Sprintf(`คุณคือ AI ผู้ช่วย HR คัดกรองเรซูเม่ จงอ่าน JD นี้: "%s" สกัดชื่อทักษะ IT พร้อม Weight (CRITICAL, IMPORTANT, STANDARD) ตอบเป็น JSON ล้วน: { "skills": [{"skill": "React", "weight": "CRITICAL"}] }`, req.Text)
-	aiText, _ := callGeminiAPI(promptText, "", "")
+	aiText, err := callGeminiAPI(promptText, "", "")
+	if err != nil {
+		writeAIError(w, "extract-jd", err)
+		return
+	}
 	cleanResponse := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(aiText, "```json", ""), "```", ""))
 	var aiData map[string]interface{}
-	json.Unmarshal([]byte(cleanResponse), &aiData)
+	if err := json.Unmarshal([]byte(cleanResponse), &aiData); err != nil || aiData == nil {
+		log.Printf("extract-jd parse: %v", err)
+		writeError(w, http.StatusInternalServerError, "AI Error: ไม่สามารถอ่านผลลัพธ์จาก AI ได้")
+		return
+	}
 	writeJSON(w, http.StatusOK, aiData)
 }
 
@@ -863,7 +915,7 @@ func sendChatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := db.Exec(
 		"INSERT INTO chat_messages (application_id, sender, text) VALUES (?, ?, ?)",
-		msg.ApplicationID, role, msg.Text,
+		canonicalChatThread(msg.ApplicationID), role, msg.Text,
 	); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to send message")
 		return
@@ -882,7 +934,10 @@ func getChatMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	msgs := []ChatMessage{}
-	rows, err := db.Query("SELECT id, application_id, sender, text, created_at FROM chat_messages WHERE application_id = ? ORDER BY id ASC", appID)
+	rows, err := db.Query(
+		"SELECT id, application_id, sender, text, created_at FROM chat_messages WHERE application_id = ? ORDER BY id ASC",
+		canonicalChatThread(appID),
+	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load messages")
 		return
@@ -903,8 +958,15 @@ func generateQuestionsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req GenerateQuestionsRequest
-	json.NewDecoder(r.Body).Decode(&req)
-	aiText, _ := callGeminiAPI(fmt.Sprintf("คุณคือกรรมการสัมภาษณ์งาน ช่วยคิดคำถามตำแหน่ง %s จำนวน 3 ข้อ พร้อมแนวทางการตอบ", req.JobTitle), "", "")
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	aiText, err := callGeminiAPI(fmt.Sprintf("คุณคือกรรมการสัมภาษณ์งาน ช่วยคิดคำถามตำแหน่ง %s จำนวน 3 ข้อ พร้อมแนวทางการตอบ", req.JobTitle), "", "")
+	if err != nil {
+		writeAIError(w, "generate-questions", err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"questions": aiText})
 }
 
@@ -913,8 +975,15 @@ func generateEmailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req GenerateEmailRequest
-	json.NewDecoder(r.Body).Decode(&req)
-	aiText, _ := callGeminiAPI(fmt.Sprintf("ร่างอีเมลสมัครงานภาษาไทยเป็นทางการ ชื่อ %s ตำแหน่ง %s บริษัท %s ทักษะ %s", req.Name, req.JobTitle, req.Company, strings.Join(req.Skills, ", ")), "", "")
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	aiText, err := callGeminiAPI(fmt.Sprintf("ร่างอีเมลสมัครงานภาษาไทยเป็นทางการ ชื่อ %s ตำแหน่ง %s บริษัท %s ทักษะ %s", req.Name, req.JobTitle, req.Company, strings.Join(req.Skills, ", ")), "", "")
+	if err != nil {
+		writeAIError(w, "generate-email", err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"email": aiText})
 }
 

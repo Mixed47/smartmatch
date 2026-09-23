@@ -42,12 +42,19 @@ func isDuplicateSchemaErr(err error) bool {
 		strings.Contains(msg, "1061")
 }
 
+// Chat rooms of one application are kept apart by an explicit suffix. The empty
+// suffix is the student ↔ company room; the others each have their own pair of
+// participants and must never share messages.
+const (
+	chatRoomStudentCompany = ""
+	chatRoomCompanyTeacher = "-TH"
+	chatRoomStudentTeacher = "-TS"
+)
+
+// parseAppID reads the numeric application id from "APP-003" or "3". It does
+// not accept chat room suffixes: those belong to parseChatThread only.
 func parseAppID(raw string) (int64, bool) {
-	key := canonicalChatThread(raw)
-	if key == "" {
-		return 0, false
-	}
-	key = strings.TrimPrefix(strings.ToUpper(key), "APP-")
+	key := strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(raw)), "APP-")
 	key = strings.TrimLeft(key, "0")
 	if key == "" {
 		return 0, false
@@ -56,32 +63,60 @@ func parseAppID(raw string) (int64, bool) {
 	return id, err == nil && id > 0
 }
 
+// parseChatThread splits "APP-003-TH" into the application id and the room it
+// belongs to.
+func parseChatThread(raw string) (appID int64, room string, ok bool) {
+	key := strings.ToUpper(strings.TrimSpace(raw))
+	switch {
+	case strings.HasSuffix(key, chatRoomCompanyTeacher):
+		room = chatRoomCompanyTeacher
+	case strings.HasSuffix(key, chatRoomStudentTeacher):
+		room = chatRoomStudentTeacher
+	default:
+		room = chatRoomStudentCompany
+	}
+	appID, ok = parseAppID(strings.TrimSuffix(key, room))
+	if !ok {
+		return 0, "", false
+	}
+	return appID, room, true
+}
+
+// canonicalChatThread rebuilds the storage key so the same room can never be
+// split in two by casing or zero padding differences.
 func canonicalChatThread(raw string) string {
-	key := strings.TrimSpace(raw)
-	key = strings.TrimSuffix(key, "-TS")
-	key = strings.TrimSuffix(key, "-TH")
-	return key
+	appID, room, ok := parseChatThread(raw)
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("APP-%03d%s", appID, room)
+}
+
+func applicationParties(appID int64) (studentID, companyID int64, ok bool) {
+	if db == nil || appID <= 0 {
+		return 0, 0, false
+	}
+	err := db.QueryRow(
+		"SELECT IFNULL(student_id, 0), IFNULL(company_user_id, 0) FROM applications WHERE id = ?",
+		appID,
+	).Scan(&studentID, &companyID)
+	if err != nil {
+		return 0, 0, false
+	}
+	return studentID, companyID, true
 }
 
 func canAccessApplication(userID int64, role string, appID int64) bool {
 	if db == nil || userID <= 0 || appID <= 0 {
 		return false
 	}
-	if role == roleTeacher {
-		var n int
-		_ = db.QueryRow("SELECT COUNT(*) FROM applications WHERE id = ?", appID).Scan(&n)
-		return n > 0
-	}
-
-	var studentID, companyID int64
-	err := db.QueryRow(
-		"SELECT IFNULL(student_id, 0), IFNULL(company_user_id, 0) FROM applications WHERE id = ?",
-		appID,
-	).Scan(&studentID, &companyID)
-	if err != nil {
+	studentID, companyID, found := applicationParties(appID)
+	if !found {
 		return false
 	}
 	switch role {
+	case roleTeacher:
+		return true
 	case roleStudent:
 		return studentID == userID
 	case roleCompany:
@@ -91,15 +126,28 @@ func canAccessApplication(userID int64, role string, appID int64) bool {
 	}
 }
 
-// canAccessChatThread guards the per-application chat only. Student/teacher
-// conversations belong to the universal inbox (/api/messages), which is keyed by
-// user id instead of an application id.
+// canAccessChatThread authorises one room, not one application: a student who
+// owns APP-003 may read APP-003 but never APP-003-TH (company ↔ teacher).
 func canAccessChatThread(userID int64, role, threadID string) bool {
-	appID, ok := parseAppID(threadID)
-	if !ok {
+	appID, room, ok := parseChatThread(threadID)
+	if !ok || userID <= 0 {
 		return false
 	}
-	return canAccessApplication(userID, role, appID)
+	studentID, companyID, found := applicationParties(appID)
+	if !found {
+		return false
+	}
+	switch room {
+	case chatRoomStudentCompany:
+		return (role == roleStudent && studentID == userID) ||
+			(role == roleCompany && companyID == userID)
+	case chatRoomCompanyTeacher:
+		return role == roleTeacher || (role == roleCompany && companyID == userID)
+	case chatRoomStudentTeacher:
+		return role == roleTeacher || (role == roleStudent && studentID == userID)
+	default:
+		return false
+	}
 }
 
 func lookupJobOwner(title, company string) (jobID, companyUserID int64) {
@@ -111,6 +159,24 @@ func lookupJobOwner(title, company string) (jobID, companyUserID int64) {
 		title, company,
 	).Scan(&jobID, &companyUserID)
 	return jobID, companyUserID
+}
+
+// uploadExtension maps the sniffed content type to the extension the file is
+// stored with, so a PDF resume is never saved (and served) as a .png.
+func uploadExtension(mimeType string) string {
+	base := strings.ToLower(strings.TrimSpace(strings.Split(mimeType, ";")[0]))
+	switch base {
+	case "application/pdf":
+		return ".pdf"
+	case "image/jpeg":
+		return ".jpg"
+	case "image/webp":
+		return ".webp"
+	case "image/gif":
+		return ".gif"
+	default:
+		return ".png"
+	}
 }
 
 func safeUploadName(name string) (string, bool) {

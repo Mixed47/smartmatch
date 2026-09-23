@@ -120,6 +120,10 @@ func CreateLogbookHandler(w http.ResponseWriter, r *http.Request) {
 	evaluation, evalErr := saveLogbookAIEvaluation(tx, entryID, studentID, req.Tasks, req.Blocker)
 	if evalErr != nil {
 		log.Printf("logbook auto-evaluate id=%d: %v", entryID, evalErr)
+		if isTimeoutErr(evalErr) {
+			writeError(w, http.StatusGatewayTimeout, "AI request timed out")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "AI evaluation failed")
 		return
 	}
@@ -265,6 +269,10 @@ func EvaluateLogbookHandler(w http.ResponseWriter, r *http.Request) {
 	evaluation, err := saveLogbookAIEvaluation(db, id, studentID, tasks, blocker.String)
 	if err != nil {
 		log.Printf("logbook evaluate id=%d: %v", id, err)
+		if isTimeoutErr(err) {
+			writeError(w, http.StatusGatewayTimeout, "AI request timed out")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "AI evaluation failed")
 		return
 	}

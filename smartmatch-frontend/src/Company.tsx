@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { ParsedSkill, Application } from './types';
-import { apiJson, fetchFileObjectURL, friendlyApiError } from './apiClient';
+import { apiJson, fetchFilePreview, friendlyApiError } from './apiClient';
 import { EmptyState, PageHeading, Skeleton, SkeletonList, Spinner } from './ui';
 
 interface Message { id: number; application_id: string; sender: string; text: string; created_at: string; }
@@ -33,6 +33,7 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [applicants, setApplicants] = useState<Application[]>([]);
   const [resumePreview, setResumePreview] = useState('');
+  const [resumeType, setResumeType] = useState('');
   const [applicantsLoading, setApplicantsLoading] = useState(true);
   const [matchedList, setMatchedList] = useState<Application[]>([]);
   const [matchesLoading, setMatchesLoading] = useState(true);
@@ -101,16 +102,17 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
 
   const currentResumeUrl = applicants[0]?.resume_url || '';
   useEffect(() => {
-    if (!currentResumeUrl) { setResumePreview(''); return; }
+    if (!currentResumeUrl) { setResumePreview(''); setResumeType(''); return; }
     let objectUrl = '';
     let cancelled = false;
-    fetchFileObjectURL(currentResumeUrl)
-      .then((url) => {
+    fetchFilePreview(currentResumeUrl)
+      .then(({ url, contentType }) => {
         if (cancelled) { if (url.startsWith('blob:')) URL.revokeObjectURL(url); return; }
         objectUrl = url;
         setResumePreview(url);
+        setResumeType(contentType);
       })
-      .catch(() => { if (!cancelled) setResumePreview(''); });
+      .catch(() => { if (!cancelled) { setResumePreview(''); setResumeType(''); } });
     return () => {
       cancelled = true;
       if (objectUrl.startsWith('blob:')) URL.revokeObjectURL(objectUrl);
@@ -512,7 +514,16 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
 
                 <div className="card-soft mb-5 flex h-56 items-center justify-center p-3 sm:h-64">
                   {applicants[0].resume_url && resumePreview ? (
-                    <img src={resumePreview} alt={`เรซูเม่ของ ${applicants[0].name}`} className="max-h-full rounded-xl border border-line object-contain" />
+                    resumeType === 'application/pdf' ? (
+                      <object data={resumePreview} type="application/pdf" className="h-full w-full rounded-xl border border-line" aria-label={`เรซูเม่ของ ${applicants[0].name}`}>
+                        <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
+                          <p className="text-sm text-ink-muted">เบราว์เซอร์นี้แสดงไฟล์ PDF ไม่ได้</p>
+                          <a href={resumePreview} target="_blank" rel="noreferrer" className="btn btn-outline btn-sm">เปิดเรซูเม่ในแท็บใหม่</a>
+                        </div>
+                      </object>
+                    ) : (
+                      <img src={resumePreview} alt={`เรซูเม่ของ ${applicants[0].name}`} className="max-h-full rounded-xl border border-line object-contain" />
+                    )
                   ) : applicants[0].resume_url ? (
                     <Spinner />
                   ) : (

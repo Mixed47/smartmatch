@@ -87,9 +87,25 @@ function protectedFilePath(path) {
  * object URL usable as an <img src>. Callers must revoke the URL when done.
  */
 export async function fetchFileObjectURL(path) {
-  if (!path) return '';
+  return (await fetchFilePreview(path)).url;
+}
+
+function contentTypeFromPath(path) {
+  const ext = String(path || '').split('?')[0].split('.').pop().toLowerCase();
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  if (ext === 'png' || ext === 'gif' || ext === 'webp') return `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+  return '';
+}
+
+/**
+ * Same as fetchFileObjectURL but also reports the content type, so callers can
+ * render a PDF resume in an <object> and an image in an <img>.
+ */
+export async function fetchFilePreview(path) {
+  if (!path) return { url: '', contentType: '' };
   const relative = protectedFilePath(path);
-  if (relative === null) return path;
+  if (relative === null) return { url: path, contentType: contentTypeFromPath(path) };
 
   const res = await apiFetch(relative);
   if (!res.ok) {
@@ -97,7 +113,11 @@ export async function fetchFileObjectURL(path) {
     error.status = res.status;
     throw error;
   }
-  return URL.createObjectURL(await res.blob());
+  const blob = await res.blob();
+  return {
+    url: URL.createObjectURL(blob),
+    contentType: blob.type || contentTypeFromPath(path),
+  };
 }
 
 export async function apiFetch(path, options = {}) {
@@ -119,6 +139,9 @@ export async function apiFetch(path, options = {}) {
   try {
     res = await fetch(url, { ...fetchOptions, headers });
   } catch (err) {
+    // A caller-triggered abort (AI timeout) must stay an AbortError so the page
+    // can show its own timeout message instead of "เชื่อมต่อไม่ได้".
+    if (err?.name === 'AbortError') throw err;
     const error = new Error('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
     error.status = 0;
     error.data = { error: 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้' };

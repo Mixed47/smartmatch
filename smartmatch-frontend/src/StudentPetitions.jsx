@@ -24,6 +24,17 @@ function statusLabel(status) {
   return 'รอพิจารณา';
 }
 
+const APPLICATION_STATUS_LABELS = {
+  Pending: 'รอพิจารณา',
+  Matched: 'ตอบรับแล้ว',
+  Rejected: 'ไม่ผ่านการพิจารณา',
+  Completed: 'ประเมินผลแล้ว',
+};
+
+function applicationStatusLabel(status) {
+  return APPLICATION_STATUS_LABELS[status] || status;
+}
+
 function petitionReason(petition) {
   if (petition?.reason) return petition.reason;
   const payload = petition?.payload;
@@ -33,10 +44,12 @@ function petitionReason(petition) {
   return '';
 }
 
-export default function StudentPetitions({ showToast }) {
-  const [type, setType] = useState('waiver');
+export default function StudentPetitions({ showToast, prefill, onPrefillConsumed }) {
+  const [type, setType] = useState(prefill?.type || 'waiver');
+  const [applicationId, setApplicationId] = useState(prefill?.applicationId || '');
   const [reason, setReason] = useState('');
   const [petitions, setPetitions] = useState([]);
+  const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -60,12 +73,31 @@ export default function StudentPetitions({ showToast }) {
 
   useEffect(() => {
     loadPetitions();
+    apiJson('/api/my-applications')
+      .then((data) => setApplications(Array.isArray(data) ? data : []))
+      .catch(() => setApplications([]));
   }, []);
+
+  // Arriving from the dashboard "สละสิทธิ์" button preselects that placement.
+  useEffect(() => {
+    if (!prefill) return;
+    if (prefill.type) setType(prefill.type);
+    if (prefill.applicationId) setApplicationId(prefill.applicationId);
+    if (onPrefillConsumed) onPrefillConsumed();
+  }, [prefill]);
+
+  // Placements the student applied to. Already-waived ones are dropped because
+  // there is nothing left to petition about.
+  const selectableApplications = applications.filter((app) => app.status !== 'Canceled');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!reason.trim()) {
       notify('กรุณาระบุเหตุผลของคำร้อง', 'error');
+      return;
+    }
+    if (type !== 'leave' && !applicationId) {
+      notify('กรุณาเลือกบริษัท/สถานที่ฝึกงานที่เกี่ยวข้อง', 'error');
       return;
     }
     setSubmitting(true);
@@ -75,10 +107,12 @@ export default function StudentPetitions({ showToast }) {
         body: JSON.stringify({
           type,
           reason: reason.trim(),
+          application_id: applicationId || null,
           payload: { reason: reason.trim() },
         }),
       });
       setReason('');
+      setApplicationId('');
       notify('ส่งคำร้องเรียบร้อยแล้ว', 'success');
       loadPetitions();
     } catch (err) {
@@ -117,6 +151,34 @@ export default function StudentPetitions({ showToast }) {
           </div>
 
           <div>
+            <label htmlFor="petition-application" className="label">
+              เลือกบริษัท/สถานที่ฝึกงานที่เกี่ยวข้อง
+              {type === 'leave' && <span className="font-normal text-ink-subtle"> (ไม่บังคับ)</span>}
+            </label>
+            <select
+              id="petition-application"
+              value={applicationId}
+              onChange={(e) => setApplicationId(e.target.value)}
+              className="select"
+              disabled={selectableApplications.length === 0}
+            >
+              <option value="">
+                {selectableApplications.length === 0 ? 'ยังไม่มีใบสมัครในระบบ' : '— ไม่ระบุ —'}
+              </option>
+              {selectableApplications.map((app) => (
+                <option key={app.id} value={app.id}>
+                  {app.company} — {app.job_title} ({applicationStatusLabel(app.status)})
+                </option>
+              ))}
+            </select>
+            <p className="field-hint">
+              {type === 'leave'
+                ? 'คำร้องลางานจะระบุสถานที่ฝึกงานหรือไม่ก็ได้'
+                : 'เลือกที่ฝึกงานที่ต้องการยื่นคำร้อง เพื่อให้อาจารย์พิจารณาได้ครบถ้วน'}
+            </p>
+          </div>
+
+          <div>
             <label htmlFor="petition-reason" className="label">เหตุผล</label>
             <textarea
               id="petition-reason"
@@ -129,7 +191,11 @@ export default function StudentPetitions({ showToast }) {
             <p className="field-hint">อาจารย์จะเห็นข้อความนี้ประกอบการพิจารณา</p>
           </div>
 
-          <button type="submit" disabled={submitting || !reason.trim()} className="btn btn-primary btn-lg btn-block">
+          <button
+            type="submit"
+            disabled={submitting || !reason.trim() || (type !== 'leave' && !applicationId)}
+            className="btn btn-primary btn-lg btn-block"
+          >
             {submitting && <Spinner />}
             {submitting ? 'กำลังส่งคำร้อง...' : 'ส่งคำร้อง'}
           </button>
@@ -153,6 +219,12 @@ export default function StudentPetitions({ showToast }) {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <h4 className="text-base font-bold text-ink sm:text-lg">{typeLabel(petition.type)}</h4>
+                  {petition.company_name && (
+                    <p className="mt-1 text-xs text-ink-muted">
+                      บริษัท: <span className="font-semibold text-brand-600 dark:text-brand-400">{petition.company_name}</span>
+                      {petition.job_title ? ` — ${petition.job_title}` : ''}
+                    </p>
+                  )}
                   <p className="mt-2 text-sm leading-relaxed text-ink-muted">{petitionReason(petition) || '-'}</p>
                   <p className="mt-2 text-xs text-ink-subtle">{petition.created_at}</p>
                 </div>

@@ -59,9 +59,15 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
   const [aiContent, setAiContent] = useState<{ [key: string]: { type: string, data: string } }>({});
   const [aiLoading, setAiLoading] = useState(false);
 
-  const [cancelModal, setCancelModal] = useState({ show: false, appId: '', companyName: '' });
-  const [cancelReason, setCancelReason] = useState('');
+  const [petitionPrefill, setPetitionPrefill] = useState<{ type: string; applicationId: string } | null>(null);
   const [loadError, setLoadError] = useState('');
+
+  // Waivers are filed as petitions, so the dashboard hands off to the petition
+  // form with the placement already selected.
+  const requestWaiver = (applicationId: string) => {
+    setPetitionPrefill({ type: 'waiver', applicationId });
+    setActiveMenu('petitions');
+  };
 
   const fetchApplications = () => {
     apiJson('/api/my-applications')
@@ -204,18 +210,6 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
     }
   };
 
-  const submitCancelRequest = () => {
-    if (!cancelReason.trim()) { showToast('กรุณาระบุเหตุผลการสละสิทธิ์', 'error'); return; }
-    apiJson('/api/request-cancel', {
-      method: 'POST',
-      body: JSON.stringify({ application_id: cancelModal.appId, student_name: profileData.firstName, company_name: cancelModal.companyName, reason: cancelReason }),
-    }).then(() => {
-      showToast('ส่งคำร้องให้อาจารย์สำเร็จ กรุณารอการอนุมัติ', 'success');
-      setCancelModal({ show: false, appId: '', companyName: '' });
-      setCancelReason('');
-    }).catch((err) => showToast(friendlyApiError(err, 'ส่งคำร้องไม่สำเร็จ'), 'error'));
-  };
-
   const generateAI = async (type: 'email' | 'interview', app: Application) => {
     setAiLoading(true); setAiContent({ ...aiContent, [app.id]: { type, data: 'กำลังวิเคราะห์และประมวลผลด้วย AI...' } });
     const endpoint = type === 'email' ? 'generate-email' : 'generate-questions';
@@ -254,57 +248,15 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
         <div className="alert alert-danger mb-6" role="alert">{loadError}</div>
       )}
 
-      {/* ---------- Cancel request modal ---------- */}
-      <AnimatePresence>
-        {cancelModal.show && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-end justify-center bg-overlay p-4 backdrop-blur-sm sm:items-center"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="cancel-modal-title"
-          >
-            <motion.div
-              initial={{ scale: 0.96, y: 24 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.96, y: 24 }}
-              className="w-full max-w-md rounded-3xl border border-line bg-surface p-6 shadow-2xl"
-            >
-              <h3 id="cancel-modal-title" className="flex items-center gap-2 text-lg font-bold text-rose-600 dark:text-rose-400">
-                <IconAlert /> ยืนยันการสละสิทธิ์
-              </h3>
-              <p className="mt-2 text-sm text-ink-muted">
-                คุณต้องการสละสิทธิ์จากบริษัท <strong className="text-ink">{cancelModal.companyName}</strong> ใช่หรือไม่?
-                คำร้องนี้จะถูกส่งให้อาจารย์อนุมัติ
-              </p>
-
-              <div className="mt-6">
-                <label htmlFor="cancel-reason" className="label">ระบุเหตุผล (บังคับ)</label>
-                <textarea
-                  id="cancel-reason"
-                  value={cancelReason}
-                  onChange={(e) => setCancelReason(e.target.value)}
-                  placeholder="เช่น ได้งานที่อื่นแล้ว, การเดินทางไม่สะดวก..."
-                  className="textarea h-24"
-                />
-              </div>
-
-              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                <button type="button" onClick={() => setCancelModal({ show: false, appId: '', companyName: '' })} className="btn btn-outline btn-block">ยกเลิก</button>
-                <button type="button" onClick={submitCancelRequest} className="btn btn-danger btn-block">ส่งคำร้อง</button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <AnimatePresence mode="wait">
 
         {activeMenu === 'petitions' && (
           <motion.div key="petitions" variants={containerVariants} initial="hidden" animate="show" exit="hidden">
-            <StudentPetitions showToast={showToast} />
+            <StudentPetitions
+              showToast={showToast}
+              prefill={petitionPrefill}
+              onPrefillConsumed={() => setPetitionPrefill(null)}
+            />
           </motion.div>
         )}
 
@@ -668,7 +620,7 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
                             </button>
                             <button
                               type="button"
-                              onClick={() => { setCancelReason(''); setCancelModal({ show: true, appId: app.id, companyName: app.company }); }}
+                              onClick={() => requestWaiver(app.id)}
                               className="btn btn-danger-soft btn-sm"
                             >
                               สละสิทธิ์

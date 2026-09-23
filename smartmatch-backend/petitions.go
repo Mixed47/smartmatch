@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -28,12 +29,18 @@ type Petition struct {
 	Reason       string          `json:"reason"`
 	Status       string          `json:"status"`
 	CreatedAt    string          `json:"created_at"`
+	// The placement this petition is about, absent for petitions that are not
+	// tied to one.
+	ApplicationID string `json:"application_id,omitempty"`
+	CompanyName   string `json:"company_name,omitempty"`
+	JobTitle      string `json:"job_title,omitempty"`
 }
 
 type createPetitionRequest struct {
-	Type    string          `json:"type"`
-	Reason  string          `json:"reason"`
-	Payload json.RawMessage `json:"payload"`
+	Type          string          `json:"type"`
+	Reason        string          `json:"reason"`
+	Payload       json.RawMessage `json:"payload"`
+	ApplicationID interface{}     `json:"application_id"`
 }
 
 type resolvePetitionRequest struct {
@@ -49,13 +56,49 @@ func ensurePetitionsTable() {
 		id INT AUTO_INCREMENT PRIMARY KEY,
 		user_id BIGINT NOT NULL,
 		type VARCHAR(50) NOT NULL,
+		application_id INT NULL,
 		payload JSON NOT NULL,
 		status VARCHAR(50) NOT NULL DEFAULT 'Pending',
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		INDEX idx_petitions_user_id (user_id),
 		INDEX idx_petitions_type (type),
-		INDEX idx_petitions_status (status)
+		INDEX idx_petitions_status (status),
+		INDEX idx_petitions_application_id (application_id)
 	)`)
+	// application_id is nullable because leave petitions are not tied to a
+	// placement. These run for databases created before the column existed.
+	for _, stmt := range []string{
+		"ALTER TABLE petitions ADD COLUMN application_id INT NULL",
+		"CREATE INDEX idx_petitions_application_id ON petitions (application_id)",
+	} {
+		if _, err := db.Exec(stmt); err != nil && !isDuplicateSchemaErr(err) {
+			fmt.Println("petitions schema migrate:", err)
+		}
+	}
+}
+
+// resolveOwnedApplicationID accepts either a numeric id or the "APP-003" display
+// form and returns it only when the application belongs to the caller.
+func resolveOwnedApplicationID(raw interface{}, userID int64) (int64, bool, error) {
+	text := strings.TrimSpace(stringifyJSONValue(raw))
+	if text == "" {
+		return 0, false, nil
+	}
+	appID, valid := parseAppID(text)
+	if !valid {
+		return 0, false, errInvalidApplication
+	}
+	var owned int
+	if err := db.QueryRow(
+		"SELECT COUNT(*) FROM applications WHERE id = ? AND student_id = ?",
+		appID, userID,
+	).Scan(&owned); err != nil {
+		return 0, false, err
+	}
+	if owned == 0 {
+		return 0, false, errInvalidApplication
+	}
+	return appID, true, nil
 }
 
 func petitionReasonFromPayload(payload json.RawMessage) string {
@@ -102,8 +145,9 @@ func buildPetitionPayload(reason string, raw json.RawMessage) (json.RawMessage, 
 }
 
 var (
-	errInvalidPayload = errors.New("invalid payload")
-	errReasonRequired = errors.New("reason required")
+	errInvalidPayload     = errors.New("invalid payload")
+	errReasonRequired     = errors.New("reason required")
+	errInvalidApplication = errors.New("invalid application")
 )
 
 func createPetitionHandler(w http.ResponseWriter, r *http.Request) {
@@ -137,23 +181,78 @@ func createPetitionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fall back to the payload so older clients that only send it keep working.
+	rawApplication := req.ApplicationID
+	if rawApplication == nil {
+		rawApplication = applicationIDFromPayload(payload)
+	}
+	appID, hasApp, err := resolveOwnedApplicationID(rawApplication, userID)
+	if err != nil {
+		if errors.Is(err, errInvalidApplication) {
+			writeError(w, http.StatusBadRequest, "application_id must be one of your own applications")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to verify application")
+		return
+	}
+
+	var appArg interface{}
+	if hasApp {
+		appArg = appID
+		// Keep the payload copy in sync so the waiver side effect and any older
+		// reader still find the reference.
+		if merged, mergeErr := withPayloadApplicationID(payload, appID); mergeErr == nil {
+			payload = merged
+		}
+	}
+
 	result, err := db.Exec(
-		"INSERT INTO petitions (user_id, type, payload, status) VALUES (?, ?, ?, 'Pending')",
-		userID, req.Type, payload,
+		"INSERT INTO petitions (user_id, type, application_id, payload, status) VALUES (?, ?, ?, ?, 'Pending')",
+		userID, req.Type, appArg, payload,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save petition")
 		return
 	}
 	id, _ := result.LastInsertId()
-	writeJSON(w, http.StatusCreated, map[string]interface{}{
+	response := map[string]interface{}{
 		"success": true,
 		"id":      id,
 		"user_id": userID,
 		"type":    req.Type,
 		"reason":  reason,
 		"status":  "Pending",
-	})
+	}
+	if hasApp {
+		response["application_id"] = formatAppID(appID)
+	}
+	writeJSON(w, http.StatusCreated, response)
+}
+
+func applicationIDFromPayload(payload json.RawMessage) interface{} {
+	if len(payload) == 0 {
+		return nil
+	}
+	var obj map[string]interface{}
+	if err := json.Unmarshal(payload, &obj); err != nil {
+		return nil
+	}
+	return obj["application_id"]
+}
+
+func withPayloadApplicationID(payload json.RawMessage, appID int64) (json.RawMessage, error) {
+	obj := map[string]interface{}{}
+	if len(payload) > 0 {
+		if err := json.Unmarshal(payload, &obj); err != nil {
+			return nil, err
+		}
+	}
+	obj["application_id"] = formatAppID(appID)
+	return json.Marshal(obj)
+}
+
+func formatAppID(appID int64) string {
+	return fmt.Sprintf("APP-%03d", appID)
 }
 
 func listPetitionsHandler(w http.ResponseWriter, r *http.Request) {
@@ -168,10 +267,12 @@ func listPetitionsHandler(w http.ResponseWriter, r *http.Request) {
 	query := `SELECT p.id, p.user_id, p.type, p.payload, p.status,
 	                 DATE_FORMAT(p.created_at, '%Y-%m-%d %H:%i:%s'),
 	                 TRIM(CONCAT(IFNULL(sp.first_name, ''), ' ', IFNULL(sp.last_name, ''))),
-	                 IFNULL(u.email, '')
+	                 IFNULL(u.email, ''),
+	                 p.application_id, a.company, a.job_title
 	          FROM petitions p
 	          LEFT JOIN users u ON u.id = p.user_id
-	          LEFT JOIN student_profiles sp ON sp.user_id = p.user_id`
+	          LEFT JOIN student_profiles sp ON sp.user_id = p.user_id
+	          LEFT JOIN applications a ON a.id = p.application_id`
 	args := []interface{}{}
 	if role == roleTeacher {
 		query += " WHERE p.status = 'Pending'"
@@ -193,7 +294,12 @@ func listPetitionsHandler(w http.ResponseWriter, r *http.Request) {
 		var p Petition
 		var name sql.NullString
 		var email sql.NullString
-		if err := rows.Scan(&p.ID, &p.UserID, &p.Type, &p.Payload, &p.Status, &p.CreatedAt, &name, &email); err != nil {
+		var appID sql.NullInt64
+		var company, jobTitle sql.NullString
+		if err := rows.Scan(
+			&p.ID, &p.UserID, &p.Type, &p.Payload, &p.Status, &p.CreatedAt, &name, &email,
+			&appID, &company, &jobTitle,
+		); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to read petitions")
 			return
 		}
@@ -206,7 +312,16 @@ func listPetitionsHandler(w http.ResponseWriter, r *http.Request) {
 			p.StudentName = strings.TrimSpace(email.String)
 		}
 		p.StudentEmail = strings.TrimSpace(email.String)
+		if appID.Valid {
+			p.ApplicationID = formatAppID(appID.Int64)
+			p.CompanyName = strings.TrimSpace(company.String)
+			p.JobTitle = strings.TrimSpace(jobTitle.String)
+		}
 		list = append(list, p)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read petitions")
+		return
 	}
 	writeJSON(w, http.StatusOK, list)
 }
@@ -248,10 +363,11 @@ func resolvePetitionHandler(w http.ResponseWriter, r *http.Request) {
 
 	var petitionType string
 	var payload json.RawMessage
+	var appID sql.NullInt64
 	err = db.QueryRow(
-		"SELECT type, payload FROM petitions WHERE id = ? AND status = 'Pending'",
+		"SELECT type, payload, application_id FROM petitions WHERE id = ? AND status = 'Pending'",
 		id,
-	).Scan(&petitionType, &payload)
+	).Scan(&petitionType, &payload, &appID)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "pending petition not found")
 		return
@@ -273,7 +389,11 @@ func resolvePetitionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if status == "Approved" && (petitionType == "waiver" || petitionType == "cancel") {
-		applyWaiverSideEffect(payload)
+		if appID.Valid {
+			_, _ = db.Exec("UPDATE applications SET status = 'Canceled' WHERE id = ?", appID.Int64)
+		} else {
+			applyWaiverSideEffect(payload)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

@@ -44,6 +44,17 @@ export default function TeacherPetitions({ petitions, resolvingId, onResolve }) 
                   <p className="mt-1 text-xs text-ink-muted">
                     ประเภทคำร้อง: <span className="font-semibold text-brand-600 dark:text-brand-400">{typeLabel(petition.type)}</span>
                   </p>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    บริษัทที่เกี่ยวข้อง:{' '}
+                    {petition.company_name ? (
+                      <span className="font-semibold text-brand-600 dark:text-brand-400">
+                        {petition.company_name}
+                        {petition.job_title ? ` — ${petition.job_title}` : ''}
+                      </span>
+                    ) : (
+                      <span className="text-ink-subtle">ไม่ระบุ</span>
+                    )}
+                  </p>
                   <p className="alert alert-info mt-3"><strong>เหตุผล:</strong> {petitionReason(petition) || '-'}</p>
                 </div>
 

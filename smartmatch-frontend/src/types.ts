@@ -35,4 +35,8 @@ export interface Petition {
   reason?: string;
   status: string;
   created_at: string;
+  /** Placement the petition refers to, absent for petitions not tied to one. */
+  application_id?: string;
+  company_name?: string;
+  job_title?: string;
 }

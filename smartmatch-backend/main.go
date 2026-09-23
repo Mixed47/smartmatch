@@ -29,8 +29,11 @@ type SkillItem struct {
 	Source string `json:"source"`
 }
 type JobReqSkill struct {
-	Skill  string `json:"skill"`
-	Weight string `json:"weight"`
+	Skill string `json:"skill"`
+	// Weight is the legacy CRITICAL/IMPORTANT/STANDARD label, IsCritical is the
+	// explicit hard-filter flag a company can set per skill.
+	Weight     string `json:"weight"`
+	IsCritical bool   `json:"is_critical"`
 }
 type JobMatchResponse struct {
 	JobTitle        string   `json:"job_title"`
@@ -38,6 +41,7 @@ type JobMatchResponse struct {
 	MatchPercentage int      `json:"match_percentage"`
 	MatchedSkills   []string `json:"matched_skills"`
 	MissingSkills   []string `json:"missing_skills"`
+	CriticalSkills  []string `json:"critical_skills"`
 }
 type Applicant struct {
 	ID              string   `json:"id"`
@@ -220,6 +224,7 @@ func initDB() {
 	ensurePetitionsTable()
 	ensureMFAColumns()
 	ensureProfileTables()
+	ensureMessagesTable()
 }
 
 // requireSecrets stops the server when secrets are missing so that no request
@@ -264,6 +269,10 @@ func main() {
 	r.Handle("/api/jobs", authed(postJobHandler, roleCompany)).Methods("POST", "GET")
 	r.Handle("/api/chat/send", authed(sendChatHandler, roleStudent, roleCompany, roleTeacher)).Methods("POST")
 	r.Handle("/api/chat/messages", authed(getChatMessagesHandler, roleStudent, roleCompany, roleTeacher)).Methods("GET")
+	r.Handle("/api/messages/contacts", authed(listMessageContactsHandler, roleStudent, roleCompany, roleTeacher)).Methods("GET")
+	r.Handle("/api/messages/unread-count", authed(unreadMessagesHandler, roleStudent, roleCompany, roleTeacher)).Methods("GET")
+	r.Handle("/api/messages", authed(listMessagesHandler, roleStudent, roleCompany, roleTeacher)).Methods("GET")
+	r.Handle("/api/messages", authed(sendMessageHandler, roleStudent, roleCompany, roleTeacher)).Methods("POST")
 	r.Handle("/api/extract-jd", authed(extractJDHandler, roleCompany)).Methods("POST")
 	r.Handle("/api/apply", authed(applyJobHandler, roleStudent)).Methods("POST")
 	r.Handle("/api/my-applications", authed(getMyApplicationsHandler, roleStudent, roleTeacher)).Methods("GET")
@@ -629,57 +638,26 @@ func matchJobsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	matches := []JobMatchResponse{}
-	gradeValues := map[string]int{"S": 5, "A": 4, "B": 3, "C": 2, "D": 1}
-	weightMultipliers := map[string]int{"CRITICAL": 3, "IMPORTANT": 2, "STANDARD": 1}
 	for rows.Next() {
 		var title, company, reqSkillsStr string
-		rows.Scan(&title, &company, &reqSkillsStr)
+		if err := rows.Scan(&title, &company, &reqSkillsStr); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to read jobs")
+			return
+		}
 		var requiredSkills []JobReqSkill
-		json.Unmarshal([]byte(reqSkillsStr), &requiredSkills)
-		var matched, missing []string
-		totalScore, maxPossibleScore := 0, 0
-		missingCritical := false
-		for _, reqSkill := range requiredSkills {
-			weightVal := weightMultipliers[strings.ToUpper(reqSkill.Weight)]
-			if weightVal == 0 {
-				weightVal = 1
-			}
-			maxPossibleScore += gradeValues["S"] * weightVal
-			found, studentVal := false, 0
-			for _, stdSkill := range req.Skills {
-				if strings.Contains(strings.ToLower(stdSkill.Name), strings.ToLower(reqSkill.Skill)) || strings.Contains(strings.ToLower(reqSkill.Skill), strings.ToLower(stdSkill.Name)) {
-					studentVal = gradeValues[normalizeLetterGrade(stdSkill.Grade)]
-					if studentVal == 0 {
-						studentVal = 2
-					}
-					matched = append(matched, reqSkill.Skill)
-					found = true
-					break
-				}
-			}
-			if found {
-				totalScore += studentVal * weightVal
-			} else {
-				missing = append(missing, reqSkill.Skill)
-				if strings.ToUpper(reqSkill.Weight) == "CRITICAL" {
-					missingCritical = true
-				}
-			}
+		_ = json.Unmarshal([]byte(reqSkillsStr), &requiredSkills)
+
+		match, rejected := scoreJobMatch(requiredSkills, req.Skills)
+		// A missing critical skill is a hard filter: the job never reaches the
+		// student's recommendation list.
+		if rejected {
+			continue
 		}
-		matchPercent := 0
-		if maxPossibleScore > 0 {
-			matchPercent = (totalScore * 100) / maxPossibleScore
-			if missingCritical && matchPercent > 50 {
-				matchPercent = 50
-			}
-			if matchPercent > 100 {
-				matchPercent = 100
-			}
-		}
-		matches = append(matches, JobMatchResponse{JobTitle: title, Company: company, MatchPercentage: matchPercent, MatchedSkills: matched, MissingSkills: missing})
+		match.JobTitle = title
+		match.Company = company
+		matches = append(matches, match)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(matches)
+	writeJSON(w, http.StatusOK, matches)
 }
 
 func updateStatusHandler(w http.ResponseWriter, r *http.Request) {

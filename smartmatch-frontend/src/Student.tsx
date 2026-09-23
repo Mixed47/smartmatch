@@ -628,6 +628,15 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
                   </div>
                 </div>
 
+                {/* Jobs whose critical skills are unmet are filtered out server-side,
+                    so anything shown here already clears the hard requirements. */}
+                {(matchedJobs[0].critical_skills || []).length > 0 && (
+                  <p className="mb-5 flex flex-wrap items-center justify-center gap-2 text-xs text-ink-muted">
+                    <span className="badge badge-success">ผ่านทักษะบังคับ</span>
+                    {(matchedJobs[0].critical_skills || []).join(', ')}
+                  </p>
+                )}
+
                 {(matchedJobs[0].missing_skills || []).length > 0 && (
                   <div className="alert alert-warning mb-6 flex-col items-start">
                     <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide"><IconAlert /> AI Skill Gap Analysis</p>

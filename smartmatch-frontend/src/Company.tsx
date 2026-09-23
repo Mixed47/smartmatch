@@ -164,7 +164,13 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
     try {
       await apiJson('/api/jobs', {
         method: 'POST',
-        body: JSON.stringify({ title: newJob.title, company: profileData.companyName, required_skills: extractedSkills }),
+        // is_critical is stored explicitly so the matching engine can hard-filter
+        // candidates who lack the skill.
+        body: JSON.stringify({
+          title: newJob.title,
+          company: profileData.companyName,
+          required_skills: extractedSkills.map((s) => ({ ...s, is_critical: s.weight === 'CRITICAL' })),
+        }),
       });
       showToast(`ลงประกาศงาน ${newJob.title} สำเร็จ!`, 'success');
       const newJobData = { title: newJob.title, company: profileData.companyName, skills: extractedSkills };
@@ -459,6 +465,11 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
                             </button>
                           ))}
                         </div>
+                        {s.weight === 'CRITICAL' && (
+                          <p className="mt-3 text-xs font-medium text-rose-600 dark:text-rose-400">
+                            ทักษะนี้เป็นเงื่อนไขบังคับ: นักศึกษาที่ไม่มีทักษะนี้จะถูกปัดตกและไม่เห็นประกาศงานนี้
+                          </p>
+                        )}
                       </motion.div>
                     ))}
                   </div>

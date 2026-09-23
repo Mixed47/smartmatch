@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Student from './Student';
 import Company from './Company';
 import Teacher from './Teacher';
+import Inbox from './Inbox';
 import { apiJson, clearAuthSession } from './apiClient';
 
 export type ToastType = { msg: string; type: 'success' | 'error' | 'info' } | null;
@@ -39,6 +40,7 @@ const IconDoc = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} str
 const IconMegaphone = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className={iconClass}><path strokeLinecap="round" strokeLinejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 110-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 01-1.44-4.282m3.102.069a18.03 18.03 0 01-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 018.835 2.535M10.34 6.66a23.847 23.847 0 008.835-2.535" /></svg>;
 const IconUsers = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className={iconClass}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>;
 const IconHeart = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className={iconClass}><path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" /></svg>;
+const IconInbox = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className={iconClass}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H6.911a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661z" /></svg>;
 const IconChart = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className={iconClass}><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>;
 const IconCheckCircle = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="h-5 w-5"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
 const IconXCircle = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="h-5 w-5"><path strokeLinecap="round" strokeLinejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
@@ -53,6 +55,7 @@ const NAV: Record<Role, { label: string; items: NavItem[] }> = {
       { key: '2', label: 'ค้นหาที่ฝึกงาน', icon: IconSearch },
       { key: 'logbook', label: 'สมุดบันทึกสหกิจ', icon: IconBook, route: '/student/logbook' },
       { key: 'petitions', label: 'ยื่นคำร้อง', icon: IconDoc },
+      { key: 'inbox', label: 'กล่องข้อความ', icon: IconInbox },
     ],
   },
   hr: {
@@ -62,6 +65,7 @@ const NAV: Record<Role, { label: string; items: NavItem[] }> = {
       { key: '4', label: 'ประกาศงานด้วย AI', icon: IconMegaphone },
       { key: '5', label: 'คัดกรองผู้สมัคร', icon: IconUsers },
       { key: '6', label: 'ผู้สมัครที่ Match', icon: IconHeart },
+      { key: 'inbox', label: 'กล่องข้อความ', icon: IconInbox },
     ],
   },
   teacher: {
@@ -69,6 +73,7 @@ const NAV: Record<Role, { label: string; items: NavItem[] }> = {
     items: [
       { key: 'teacher-home', label: 'ติดตามนักศึกษา', icon: IconChart, alias: ['7'] },
       { key: 'teacher-petitions', label: 'จัดการคำร้อง', icon: IconDoc },
+      { key: 'inbox', label: 'กล่องข้อความ', icon: IconInbox },
     ],
   },
 };
@@ -97,7 +102,14 @@ function Dashboard({ initialRole }: { initialRole: 'student' | 'company' | 'teac
   const [showNotif, setShowNotif] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [studentHeader, setStudentHeader] = useState({ name: 'นักศึกษา', major: '' });
+  const [unreadMessages, setUnreadMessages] = useState(0);
   const notifRef = useRef<HTMLDivElement>(null);
+
+  const refreshUnreadMessages = () => {
+    apiJson('/api/messages/unread-count')
+      .then((data) => setUnreadMessages(Number(data?.unread_count) || 0))
+      .catch(() => {});
+  };
 
   const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToast({ msg, type });
@@ -133,6 +145,13 @@ function Dashboard({ initialRole }: { initialRole: 'student' | 'company' | 'teac
         setStudentHeader({ name: 'นักศึกษา', major: '' });
       });
   }, [role, activeMenu]);
+
+  // Polled instead of pushed: the inbox is a simple polling chat, no WebSocket.
+  useEffect(() => {
+    refreshUnreadMessages();
+    const interval = setInterval(refreshUnreadMessages, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Close overlays with Escape, and lock scroll while the mobile drawer is open.
   useEffect(() => {
@@ -213,6 +232,14 @@ function Dashboard({ initialRole }: { initialRole: 'student' | 'company' | 'teac
             >
               <Icon />
               <span className="truncate">{item.label}</span>
+              {item.key === 'inbox' && unreadMessages > 0 && (
+                <span
+                  className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${active ? 'bg-white/20 text-white' : 'bg-rose-500 text-white'}`}
+                  aria-label={`ข้อความใหม่ ${unreadMessages} รายการ`}
+                >
+                  {unreadMessages > 99 ? '99+' : unreadMessages}
+                </span>
+              )}
             </button>
           );
         })}
@@ -399,9 +426,15 @@ function Dashboard({ initialRole }: { initialRole: 'student' | 'company' | 'teac
         </header>
 
         <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
-          {role === 'student' && <Student activeMenu={activeMenu} setActiveMenu={setActiveMenu} showToast={showToast} />}
-          {role === 'hr' && <Company activeMenu={activeMenu} setActiveMenu={setActiveMenu} showToast={showToast} />}
-          {role === 'teacher' && <Teacher activeMenu={activeMenu} setActiveMenu={setActiveMenu} showToast={showToast} />}
+          {activeMenu === 'inbox' ? (
+            <Inbox showToast={showToast} onUnreadChange={refreshUnreadMessages} />
+          ) : (
+            <>
+              {role === 'student' && <Student activeMenu={activeMenu} setActiveMenu={setActiveMenu} showToast={showToast} />}
+              {role === 'hr' && <Company activeMenu={activeMenu} setActiveMenu={setActiveMenu} showToast={showToast} />}
+              {role === 'teacher' && <Teacher activeMenu={activeMenu} setActiveMenu={setActiveMenu} showToast={showToast} />}
+            </>
+          )}
         </div>
       </main>
     </div>

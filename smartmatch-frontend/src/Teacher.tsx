@@ -37,7 +37,7 @@ const STATUS_BADGE: Record<string, { cls: string; label: string }> = {
   Pending: { cls: 'badge-warning', label: 'รอพิจารณา' },
 };
 
-export default function Teacher({ activeMenu, showToast }: { activeMenu?: string; setActiveMenu?: (m: string) => void; showToast?: (msg: string, type: 'success' | 'error' | 'info') => void; }) {
+export default function Teacher({ activeMenu, showToast, openInbox }: { activeMenu?: string; setActiveMenu?: (m: string) => void; showToast?: (msg: string, type: 'success' | 'error' | 'info') => void; openInbox?: (peerId?: number | null) => void; }) {
   const [applications, setApplications] = useState<Application[]>([]);
   const [cancelRequests, setCancelRequests] = useState<CancelRequest[]>([]);
   const [petitions, setPetitions] = useState<Petition[]>([]);
@@ -131,6 +131,16 @@ export default function Teacher({ activeMenu, showToast }: { activeMenu?: string
     } catch (err) {
       notify(friendlyApiError(err, 'ส่งข้อความไม่สำเร็จ'), 'error');
     }
+  };
+
+  // Student conversations live in the universal inbox (keyed by user id), not in
+  // the per-application chat, so this hands off instead of opening a drawer.
+  const chatWithStudent = (studentId?: number) => {
+    if (!studentId || !openInbox) {
+      notify('ยังไม่พบบัญชีผู้ใช้ของนักศึกษาคนนี้ กรุณาเปิดจากกล่องข้อความ', 'error');
+      return;
+    }
+    openInbox(studentId);
   };
 
   const handleResolvePetition = async (id: number, status: 'Approved' | 'Rejected') => {
@@ -310,7 +320,11 @@ export default function Teacher({ activeMenu, showToast }: { activeMenu?: string
                         <p className="alert alert-danger mt-3"><strong>เหตุผล:</strong> {req.reason}</p>
                       </div>
                       <div className="flex flex-wrap gap-2 xl:justify-end">
-                        <button type="button" onClick={() => setActiveChatId(`${req.application_id}-TS`)} className="btn btn-outline btn-sm">
+                        <button
+                          type="button"
+                          onClick={() => chatWithStudent(applications.find((a) => a.id === req.application_id)?.student_id)}
+                          className="btn btn-outline btn-sm"
+                        >
                           <IconChat /> สอบถามนักศึกษา
                         </button>
                         <button type="button" onClick={() => handleResolveRequest(req.id, req.application_id, 'reject')} className="btn btn-outline btn-sm">ไม่อนุมัติ</button>
@@ -382,9 +396,8 @@ export default function Teacher({ activeMenu, showToast }: { activeMenu?: string
                           </button>
                           <button
                             type="button"
-                            onClick={() => { setActiveLogCardId(null); setActiveChatId(activeChatId === `${app.id}-TS` ? null : `${app.id}-TS`); }}
-                            aria-expanded={activeChatId === `${app.id}-TS`}
-                            className={`btn btn-sm ${activeChatId === `${app.id}-TS` ? 'btn-neutral' : 'btn-primary'}`}
+                            onClick={() => { setActiveLogCardId(null); setActiveChatId(null); chatWithStudent(app.student_id); }}
+                            className="btn btn-primary btn-sm"
                           >
                             <IconChat /> นักศึกษา
                           </button>
@@ -455,7 +468,7 @@ export default function Teacher({ activeMenu, showToast }: { activeMenu?: string
 
                       {/* Chat drawer */}
                       <AnimatePresence>
-                        {activeChatId && (activeChatId === `${app.id}-TS` || activeChatId === `${app.id}-TH`) && (
+                        {activeChatId === `${app.id}-TH` && (
                           <motion.div
                             initial={{ height: 0, opacity: 0, marginTop: 0 }}
                             animate={{ height: 'auto', opacity: 1, marginTop: 20 }}
@@ -464,9 +477,7 @@ export default function Teacher({ activeMenu, showToast }: { activeMenu?: string
                           >
                             <div className="border-b border-line bg-surface-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
                               ห้องสนทนากับ:{' '}
-                              <span className="font-bold text-brand-600 dark:text-brand-400">
-                                {activeChatId === `${app.id}-TS` ? 'นักศึกษา' : `HR (${app.company})`}
-                              </span>
+                              <span className="font-bold text-brand-600 dark:text-brand-400">HR ({app.company})</span>
                             </div>
                             <div className="chat-window h-64">
                               {chatMessages.length === 0

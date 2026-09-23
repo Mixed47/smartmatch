@@ -44,7 +44,10 @@ type JobMatchResponse struct {
 	CriticalSkills  []string `json:"critical_skills"`
 }
 type Applicant struct {
-	ID              string   `json:"id"`
+	ID string `json:"id"`
+	// StudentID is the users.id of the applicant, so the teacher UI can open the
+	// matching inbox thread instead of guessing from the display name.
+	StudentID       int64    `json:"student_id"`
 	Name            string   `json:"name"`
 	JobTitle        string   `json:"job_title"`
 	Company         string   `json:"company"`
@@ -771,9 +774,9 @@ func getMyApplicationsHandler(w http.ResponseWriter, r *http.Request) {
 	var rows *sql.Rows
 	var err error
 	if role == roleTeacher {
-		rows, err = db.Query("SELECT id, job_title, company, status, name FROM applications ORDER BY id DESC")
+		rows, err = db.Query("SELECT id, job_title, company, status, name, IFNULL(student_id, 0) FROM applications ORDER BY id DESC")
 	} else {
-		rows, err = db.Query("SELECT id, job_title, company, status, name FROM applications WHERE student_id = ? ORDER BY id DESC", userID)
+		rows, err = db.Query("SELECT id, job_title, company, status, name, IFNULL(student_id, 0) FROM applications WHERE student_id = ? ORDER BY id DESC", userID)
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load applications")
@@ -783,7 +786,7 @@ func getMyApplicationsHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var app Applicant
 		var id int
-		rows.Scan(&id, &app.JobTitle, &app.Company, &app.Status, &app.Name)
+		rows.Scan(&id, &app.JobTitle, &app.Company, &app.Status, &app.Name, &app.StudentID)
 		app.ID = fmt.Sprintf("APP-%03d", id)
 		myApps = append(myApps, app)
 	}

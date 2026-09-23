@@ -44,7 +44,7 @@ func isDuplicateSchemaErr(err error) bool {
 
 func parseAppID(raw string) (int64, bool) {
 	key := canonicalChatThread(raw)
-	if key == "" || strings.EqualFold(key, "GENERAL-CHAT") {
+	if key == "" {
 		return 0, false
 	}
 	key = strings.TrimPrefix(strings.ToUpper(key), "APP-")
@@ -91,12 +91,11 @@ func canAccessApplication(userID int64, role string, appID int64) bool {
 	}
 }
 
+// canAccessChatThread guards the per-application chat only. Student/teacher
+// conversations belong to the universal inbox (/api/messages), which is keyed by
+// user id instead of an application id.
 func canAccessChatThread(userID int64, role, threadID string) bool {
-	key := canonicalChatThread(threadID)
-	if strings.EqualFold(key, "GENERAL-CHAT") {
-		return role == roleStudent || role == roleTeacher
-	}
-	appID, ok := parseAppID(key)
+	appID, ok := parseAppID(threadID)
 	if !ok {
 		return false
 	}

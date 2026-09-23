@@ -111,6 +111,10 @@ func listMessageContactsHandler(w http.ResponseWriter, r *http.Request) {
 		contacts = append(contacts, &c)
 		byID[c.UserID] = &c
 	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read contacts")
+		return
+	}
 
 	if err := fillConversationPreviews(userID, byID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load conversations")
@@ -272,6 +276,12 @@ func listMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		m.SenderName = displayNameFor(m.SenderRole, senderEmail, studentName.String, companyName.String)
 		m.Mine = m.SenderID == userID
 		messages = append(messages, m)
+	}
+	// Without this check a mid-iteration failure would silently render as an
+	// empty thread instead of an error the client can show.
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read messages")
+		return
 	}
 
 	_, _ = db.Exec(

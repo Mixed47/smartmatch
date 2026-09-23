@@ -25,13 +25,16 @@ const IconBack = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.8} st
 export default function Inbox({
   showToast,
   onUnreadChange,
+  initialPeerId = null,
 }: {
   showToast: (msg: string, type: 'success' | 'error' | 'info') => void;
   onUnreadChange?: () => void;
+  /** Opens straight into this user's thread, used by deep links from other pages. */
+  initialPeerId?: number | null;
 }) {
   const [contacts, setContacts] = useState<InboxContact[]>([]);
   const [contactsLoading, setContactsLoading] = useState(true);
-  const [activePeerId, setActivePeerId] = useState<number | null>(null);
+  const [activePeerId, setActivePeerId] = useState<number | null>(initialPeerId);
   const [messages, setMessages] = useState<InboxMessage[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
   const [draft, setDraft] = useState('');

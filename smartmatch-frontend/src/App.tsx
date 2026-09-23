@@ -103,7 +103,14 @@ function Dashboard({ initialRole }: { initialRole: 'student' | 'company' | 'teac
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [studentHeader, setStudentHeader] = useState({ name: 'นักศึกษา', major: '' });
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [inboxPeerId, setInboxPeerId] = useState<number | null>(null);
   const notifRef = useRef<HTMLDivElement>(null);
+
+  /** Jumps to the inbox, optionally opening a specific conversation. */
+  const openInbox = (peerId?: number | null) => {
+    setInboxPeerId(peerId ?? null);
+    setActiveMenu('inbox');
+  };
 
   const refreshUnreadMessages = () => {
     apiJson('/api/messages/unread-count')
@@ -198,6 +205,7 @@ function Dashboard({ initialRole }: { initialRole: 'student' | 'company' | 'teac
   const handleNavClick = (item: NavItem) => {
     setSidebarOpen(false);
     if (item.route) { navigate(item.route); return; }
+    if (item.key === 'inbox') { openInbox(); return; }
     setActiveMenu(item.key);
   };
 
@@ -427,12 +435,18 @@ function Dashboard({ initialRole }: { initialRole: 'student' | 'company' | 'teac
 
         <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
           {activeMenu === 'inbox' ? (
-            <Inbox showToast={showToast} onUnreadChange={refreshUnreadMessages} />
+            <Inbox
+              // Remount so a deep link from another page opens its thread.
+              key={inboxPeerId ?? 'all'}
+              showToast={showToast}
+              onUnreadChange={refreshUnreadMessages}
+              initialPeerId={inboxPeerId}
+            />
           ) : (
             <>
               {role === 'student' && <Student activeMenu={activeMenu} setActiveMenu={setActiveMenu} showToast={showToast} />}
               {role === 'hr' && <Company activeMenu={activeMenu} setActiveMenu={setActiveMenu} showToast={showToast} />}
-              {role === 'teacher' && <Teacher activeMenu={activeMenu} setActiveMenu={setActiveMenu} showToast={showToast} />}
+              {role === 'teacher' && <Teacher activeMenu={activeMenu} setActiveMenu={setActiveMenu} showToast={showToast} openInbox={openInbox} />}
             </>
           )}
         </div>

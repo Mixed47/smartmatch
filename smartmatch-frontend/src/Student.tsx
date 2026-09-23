@@ -9,10 +9,7 @@ interface Message { id: number; application_id: string; sender: string; text: st
 
 const IconSparkles = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>;
 const IconChat = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.436 3 11.996c0 2.29.932 4.35 2.44 5.86l-1.92 2.91a.75.75 0 00.91 1.09l3.22-1.39a9.123 9.123 0 004.35 1.034z" /></svg>;
-const IconTeacher = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-5 w-5"><path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5" /></svg>;
 const IconAlert = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-5 w-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>;
-const IconClose = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>;
-const IconSend = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>;
 const IconUserCircle = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-10 w-10"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>;
 
 const containerVariants: Variants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.08 } } };
@@ -299,52 +296,6 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
                 <button type="button" onClick={submitCancelRequest} className="btn btn-danger btn-block">ส่งคำร้อง</button>
               </div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ---------- Floating advisor chat ---------- */}
-      <motion.button
-        type="button"
-        whileTap={{ scale: 0.96 }}
-        onClick={() => setActiveChatId(activeChatId === 'GENERAL-CHAT' ? null : 'GENERAL-CHAT')}
-        className="btn btn-primary fixed bottom-5 right-4 z-40 h-12 rounded-full px-4 shadow-lg shadow-brand-600/30 sm:bottom-8 sm:right-8 sm:px-5"
-        aria-expanded={activeChatId === 'GENERAL-CHAT'}
-      >
-        <IconTeacher />
-        <span className="hidden sm:inline">ปรึกษาอาจารย์</span>
-      </motion.button>
-
-      <AnimatePresence>
-        {activeChatId === 'GENERAL-CHAT' && (
-          <motion.div
-            initial={{ opacity: 0, y: 16, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 16, scale: 0.97 }}
-            className="fixed bottom-20 right-4 z-40 flex h-[26rem] w-[min(21rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl sm:bottom-24 sm:right-8"
-          >
-            <div className="flex items-center justify-between gap-2 border-b border-line bg-surface-2 px-4 py-3">
-              <span className="flex items-center gap-2 text-sm font-semibold text-ink"><IconTeacher /> ห้องแชทที่ปรึกษา</span>
-              <button type="button" onClick={() => setActiveChatId(null)} className="icon-btn h-8 w-8" aria-label="ปิดหน้าต่างแชท"><IconClose /></button>
-            </div>
-            <div className="chat-window flex-1">
-              {chatMessages.length === 0 ? (
-                <p className="mt-10 px-4 text-center text-sm text-ink-muted">
-                  ส่งข้อความเพื่อปรึกษาเรื่องที่ฝึกงาน หรือการเตรียมตัวสัมภาษณ์ได้เลยครับ
-                </p>
-              ) : (
-                chatMessages.map((m) => (
-                  <div key={m.id} className={`bubble ${m.sender === 'student' ? 'bubble-me' : 'bubble-them'}`}>
-                    <p>{m.text}</p>
-                  </div>
-                ))
-              )}
-            </div>
-            <form onSubmit={handleSendChat} className="flex gap-2 border-t border-line bg-surface p-3">
-              <label htmlFor="advisor-chat-input" className="sr-only">ข้อความ</label>
-              <input id="advisor-chat-input" type="text" value={typedMessage} onChange={(e) => setTypedMessage(e.target.value)} placeholder="พิมพ์ข้อความ..." className="input py-2.5 text-sm" />
-              <button type="submit" disabled={!typedMessage.trim()} className="btn btn-primary btn-sm shrink-0" aria-label="ส่งข้อความ"><IconSend /></button>
-            </form>
           </motion.div>
         )}
       </AnimatePresence>
@@ -727,7 +678,7 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
                       </div>
 
                       <AnimatePresence>
-                        {activeChatId && (activeChatId === app.id || activeChatId === `${app.id}-TS`) && (
+                        {activeChatId === app.id && (
                           <motion.div
                             initial={{ height: 0, opacity: 0, marginTop: 0 }}
                             animate={{ height: 'auto', opacity: 1, marginTop: 20 }}
@@ -735,7 +686,7 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
                             className="overflow-hidden rounded-2xl border border-line"
                           >
                             <div className="border-b border-line bg-surface-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
-                              สนทนากับ: {activeChatId === app.id ? `HR ${app.company}` : 'อาจารย์ที่ปรึกษา'}
+                              สนทนากับ: HR {app.company}
                             </div>
                             <div className="chat-window h-56">
                               {chatMessages.length === 0

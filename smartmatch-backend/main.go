@@ -2,19 +2,23 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 )
@@ -26,8 +30,11 @@ type SkillItem struct {
 	Source string `json:"source"`
 }
 type JobReqSkill struct {
-	Skill  string `json:"skill"`
-	Weight string `json:"weight"`
+	Skill string `json:"skill"`
+	// Weight is the legacy CRITICAL/IMPORTANT/STANDARD label, IsCritical is the
+	// explicit hard-filter flag a company can set per skill.
+	Weight     string `json:"weight"`
+	IsCritical bool   `json:"is_critical"`
 }
 type JobMatchResponse struct {
 	JobTitle        string   `json:"job_title"`
@@ -35,9 +42,13 @@ type JobMatchResponse struct {
 	MatchPercentage int      `json:"match_percentage"`
 	MatchedSkills   []string `json:"matched_skills"`
 	MissingSkills   []string `json:"missing_skills"`
+	CriticalSkills  []string `json:"critical_skills"`
 }
 type Applicant struct {
-	ID              string   `json:"id"`
+	ID string `json:"id"`
+	// StudentID is the users.id of the applicant, so the teacher UI can open the
+	// matching inbox thread instead of guessing from the display name.
+	StudentID       int64    `json:"student_id"`
 	Name            string   `json:"name"`
 	JobTitle        string   `json:"job_title"`
 	Company         string   `json:"company"`
@@ -60,11 +71,13 @@ type ChatMessage struct {
 }
 type LogbookEntry struct {
 	ID        int    `json:"id"`
+	StudentID int    `json:"student_id"`
 	Name      string `json:"name"`
 	Category  string `json:"category"`
 	Activity  string `json:"activity"`
 	Blocker   string `json:"blocker"`
 	CreatedAt string `json:"created_at"`
+	Date      string `json:"date"`
 }
 type ExtractJDRequest struct {
 	Text string `json:"text"`
@@ -94,18 +107,90 @@ type EvaluateRequest struct {
 
 var db *sql.DB
 
+func loadDotEnv() {
+	candidates := []string{".env"}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), ".env"))
+	}
+	if wd, err := os.Getwd(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(wd, ".env"),
+			filepath.Join(wd, "smartmatch-backend", ".env"),
+		)
+	}
+	for _, path := range candidates {
+		_ = godotenv.Load(path)
+	}
+}
+
+func envOrDefault(key, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return fallback
+}
+
+// mysqlDSN builds the connection string from DB_URL when provided (managed
+// databases), otherwise from the discrete DB_* variables used by docker-compose.
+func mysqlDSN() (string, error) {
+	if raw := strings.Trim(strings.TrimSpace(os.Getenv("DB_URL")), `"`); raw != "" {
+		return raw, nil
+	}
+
+	user := strings.TrimSpace(os.Getenv("DB_USER"))
+	password := os.Getenv("DB_PASSWORD")
+	if user == "" || password == "" {
+		return "", errors.New("ไม่พบค่าตั้งค่าฐานข้อมูล: ต้องกำหนด DB_URL หรือ DB_USER/DB_PASSWORD/DB_HOST")
+	}
+
+	cfg := mysql.NewConfig()
+	cfg.Net = "tcp"
+	cfg.User = user
+	cfg.Passwd = password
+	cfg.Addr = net.JoinHostPort(envOrDefault("DB_HOST", "127.0.0.1"), envOrDefault("DB_PORT", "3306"))
+	cfg.DBName = envOrDefault("DB_NAME", "smartmatch")
+	cfg.ParseTime = true
+	cfg.Loc = time.Local
+	cfg.TLSConfig = strings.TrimSpace(os.Getenv("DB_TLS"))
+	return cfg.FormatDSN(), nil
+}
+
+// connectDB retries because MySQL inside docker-compose accepts connections
+// a few seconds after the container starts.
+func connectDB(dsn string) (*sql.DB, error) {
+	conn, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, err
+	}
+	conn.SetMaxOpenConns(25)
+	conn.SetMaxIdleConns(5)
+	conn.SetConnMaxLifetime(5 * time.Minute)
+
+	attempts := 10
+	if parsed, convErr := strconv.Atoi(envOrDefault("DB_CONNECT_ATTEMPTS", "")); convErr == nil && parsed > 0 {
+		attempts = parsed
+	}
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if err = conn.Ping(); err == nil {
+			return conn, nil
+		}
+		log.Printf("⏳ รอฐานข้อมูลพร้อมใช้งาน (%d/%d): %v", attempt, attempts, err)
+		time.Sleep(3 * time.Second)
+	}
+	_ = conn.Close()
+	return nil, err
+}
+
 func initDB() {
-	_ = godotenv.Load()
-	dsn := os.Getenv("DB_URL")
-	dsn = strings.Trim(dsn, `"`)
-	if dsn == "" {
-		fmt.Println("❌ ไม่พบ DB_URL ในไฟล์ .env")
+	loadDotEnv()
+	dsn, err := mysqlDSN()
+	if err != nil {
+		fmt.Println("❌", err)
 		return
 	}
 
-	var err error
-	db, err = sql.Open("mysql", dsn)
-	if err != nil || db.Ping() != nil {
+	db, err = connectDB(dsn)
+	if err != nil {
 		fmt.Println("❌ Error เชื่อมต่อฐานข้อมูล:", err)
 		return
 	}
@@ -132,84 +217,166 @@ func initDB() {
 		tasks TEXT NOT NULL,
 		blocker TEXT,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		ai_feedback TEXT,
+		ai_score VARCHAR(32),
+		ai_is_critical TINYINT(1),
+		ai_evaluated_at TIMESTAMP NULL,
+		is_acknowledged TINYINT(1) NOT NULL DEFAULT 0,
 		INDEX idx_logbook_student_id (student_id),
 		CONSTRAINT fk_logbook_student FOREIGN KEY (student_id) REFERENCES users(id)
 	)`)
+	ensureLogbookAIColumns()
+	ensureOwnershipColumns()
+	ensurePetitionsTable()
+	ensureMFAColumns()
+	ensureProfileTables()
+	ensureMessagesTable()
+}
+
+// requireSecrets stops the server when secrets are missing so that no request
+// is ever served with an implicit fallback credential.
+func requireSecrets() {
+	if _, err := jwtSecret(); err != nil {
+		log.Fatalf("❌ %v — กำหนดค่าใน .env หรือ environment variables ก่อนเริ่มเซิร์ฟเวอร์", err)
+	}
+	if strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) == "" {
+		log.Println("⚠️  GEMINI_API_KEY is not configured — ฟีเจอร์ AI จะตอบกลับเป็น error 500")
+	}
 }
 
 func main() {
-	_ = godotenv.Load()
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+	loadDotEnv()
+	requireSecrets()
+	port := envOrDefault("PORT", "8080")
 	initDB()
 	os.MkdirAll("./uploads", os.ModePerm)
 
 	r := mux.NewRouter()
-	r.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads"))))
 
 	r.HandleFunc("/api/register", RegisterHandler).Methods("POST")
 	r.HandleFunc("/api/login", LoginHandler).Methods("POST")
+	r.HandleFunc("/api/verify-mfa", VerifyMFAHandler).Methods("POST")
+	r.Handle("/api/me", authed(meHandler)).Methods("GET")
+	r.Handle("/api/student/profile", authed(getStudentProfileHandler, roleStudent)).Methods("GET")
+	r.Handle("/api/student/profile", authed(putStudentProfileHandler, roleStudent)).Methods("PUT")
+	r.Handle("/api/company/profile", authed(getCompanyProfileHandler, roleCompany)).Methods("GET")
+	r.Handle("/api/company/profile", authed(putCompanyProfileHandler, roleCompany)).Methods("PUT")
 
-	r.HandleFunc("/api/extract-skills-graded", extractSkillsGradedHandler).Methods("POST", "OPTIONS")
-	r.HandleFunc("/api/match-jobs", matchJobsHandler).Methods("POST", "OPTIONS")
-	r.Handle("/api/logbook", jwtAuthMiddleware(http.HandlerFunc(CreateLogbookHandler))).Methods("POST")
-	r.Handle("/api/logbook", jwtAuthMiddleware(http.HandlerFunc(ListMyLogbookHandler))).Methods("GET")
-	r.Handle("/api/logbook/entries", jwtAuthMiddleware(http.HandlerFunc(ListMyLogbookHandler))).Methods("GET")
-	r.Handle("/api/logbook/{id}/evaluate", jwtAuthMiddleware(http.HandlerFunc(EvaluateLogbookHandler))).Methods("POST")
-	r.HandleFunc("/api/applications", getApplicationsHandler).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/update-status", updateStatusHandler).Methods("POST", "OPTIONS")
-	r.HandleFunc("/api/jobs", postJobHandler).Methods("POST", "GET", "OPTIONS")
-	r.HandleFunc("/api/chat/send", sendChatHandler).Methods("POST", "OPTIONS")
-	r.HandleFunc("/api/chat/messages", getChatMessagesHandler).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/extract-jd", extractJDHandler).Methods("POST", "OPTIONS")
-	r.HandleFunc("/api/apply", applyJobHandler).Methods("POST", "OPTIONS")
-	r.HandleFunc("/api/my-applications", getMyApplicationsHandler).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/hr-matches", getHRMatchesHandler).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/generate-questions", generateQuestionsHandler).Methods("POST", "OPTIONS")
-	r.HandleFunc("/api/generate-email", generateEmailHandler).Methods("POST", "OPTIONS")
-	r.HandleFunc("/api/request-cancel", requestCancelHandler).Methods("POST", "OPTIONS")
-	r.HandleFunc("/api/cancel-requests", getCancelRequestsHandler).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/resolve-cancel", resolveCancelHandler).Methods("POST", "OPTIONS")
-	r.HandleFunc("/api/evaluate", evaluateStudentHandler).Methods("POST", "OPTIONS")
-	r.HandleFunc("/api/evaluations", getEvaluationsHandler).Methods("GET", "OPTIONS")
+	r.Handle("/api/extract-skills-graded", authed(extractSkillsGradedHandler, roleStudent)).Methods("POST")
+	r.Handle("/api/match-jobs", authed(matchJobsHandler, roleStudent)).Methods("POST")
+	r.Handle("/api/logbook", authed(CreateLogbookHandler, roleStudent)).Methods("POST")
+	r.Handle("/api/logbook", authed(ListMyLogbookHandler, roleStudent, roleTeacher)).Methods("GET")
+	r.Handle("/api/logbook/entries", authed(ListMyLogbookHandler, roleStudent, roleTeacher)).Methods("GET")
+	r.Handle("/api/logbook/{id}/evaluate", authed(EvaluateLogbookHandler, roleStudent)).Methods("POST")
+	r.Handle("/api/teacher/critical-logbooks", authed(ListCriticalLogbooksHandler, roleTeacher)).Methods("GET")
+	r.Handle("/api/teacher/critical-logbooks/{id}/acknowledge", authed(AcknowledgeCriticalLogbookHandler, roleTeacher)).Methods("PUT")
+	r.Handle("/api/applications", authed(getApplicationsHandler, roleCompany)).Methods("GET")
+	r.Handle("/api/update-status", authed(updateStatusHandler, roleCompany)).Methods("POST")
+	r.Handle("/api/jobs", authed(postJobHandler, roleCompany)).Methods("POST", "GET")
+	r.Handle("/api/chat/send", authed(sendChatHandler, roleStudent, roleCompany, roleTeacher)).Methods("POST")
+	r.Handle("/api/chat/messages", authed(getChatMessagesHandler, roleStudent, roleCompany, roleTeacher)).Methods("GET")
+	r.Handle("/api/messages/contacts", authed(listMessageContactsHandler, roleStudent, roleCompany, roleTeacher)).Methods("GET")
+	r.Handle("/api/messages/unread-count", authed(unreadMessagesHandler, roleStudent, roleCompany, roleTeacher)).Methods("GET")
+	r.Handle("/api/messages", authed(listMessagesHandler, roleStudent, roleCompany, roleTeacher)).Methods("GET")
+	r.Handle("/api/messages", authed(sendMessageHandler, roleStudent, roleCompany, roleTeacher)).Methods("POST")
+	r.Handle("/api/extract-jd", authed(extractJDHandler, roleCompany)).Methods("POST")
+	r.Handle("/api/apply", authed(applyJobHandler, roleStudent)).Methods("POST")
+	r.Handle("/api/my-applications", authed(getMyApplicationsHandler, roleStudent, roleTeacher)).Methods("GET")
+	r.Handle("/api/hr-matches", authed(getHRMatchesHandler, roleCompany)).Methods("GET")
+	r.Handle("/api/generate-questions", authed(generateQuestionsHandler, roleStudent)).Methods("POST")
+	r.Handle("/api/generate-email", authed(generateEmailHandler, roleStudent)).Methods("POST")
+	r.Handle("/api/request-cancel", authed(requestCancelHandler, roleStudent)).Methods("POST")
+	r.Handle("/api/cancel-requests", authed(getCancelRequestsHandler, roleTeacher)).Methods("GET")
+	r.Handle("/api/resolve-cancel", authed(resolveCancelHandler, roleTeacher)).Methods("POST")
+	r.Handle("/api/petitions", authed(createPetitionHandler, roleStudent)).Methods("POST")
+	r.Handle("/api/petitions", authed(listPetitionsHandler, roleStudent, roleTeacher)).Methods("GET")
+	r.Handle("/api/petitions/{id}/resolve", authed(resolvePetitionHandler, roleTeacher)).Methods("PUT")
+	r.Handle("/api/evaluate", authed(evaluateStudentHandler, roleCompany)).Methods("POST")
+	r.Handle("/api/evaluations", authed(getEvaluationsHandler, roleTeacher, roleCompany)).Methods("GET")
+	r.Handle("/api/files/{filename}", authed(serveProtectedUpload)).Methods("GET")
 
+	r.HandleFunc("/api/health", healthHandler).Methods("GET")
 	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintf(w, "API is running!") }).Methods("GET")
 	fmt.Println("🚀 Web Server เปิดทำงานที่พอร์ต " + port)
 	log.Fatal(http.ListenAndServe(":"+port, enableCORS(r)))
 }
 
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	database := "down"
+	if db != nil && db.Ping() == nil {
+		database = "up"
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "database": database})
+}
+
 func requestCancelHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(http.StatusOK)
+	userID, _, ok := currentUser(w, r)
+	if !ok {
 		return
 	}
 	var req CancelRequest
-	json.NewDecoder(r.Body).Decode(&req)
-	db.Exec("INSERT INTO cancel_requests (application_id, student_name, company_name, reason) VALUES (?, ?, ?, ?)", req.AppID, req.StudentName, req.CompanyName, req.Reason)
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"success": true}`)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	appID, valid := parseAppID(req.AppID)
+	if !valid || !canAccessApplication(userID, roleStudent, appID) {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	if strings.TrimSpace(req.Reason) == "" {
+		writeError(w, http.StatusBadRequest, "reason is required")
+		return
+	}
+	_, err := db.Exec(
+		"INSERT INTO cancel_requests (application_id, student_name, company_name, reason, student_id) VALUES (?, ?, ?, ?, ?)",
+		req.AppID, req.StudentName, req.CompanyName, req.Reason, userID,
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save cancel request")
+		return
+	}
+	payload, _ := json.Marshal(map[string]string{
+		"application_id": req.AppID,
+		"student_name":   req.StudentName,
+		"company_name":   req.CompanyName,
+		"reason":         req.Reason,
+	})
+	_, _ = db.Exec(
+		"INSERT INTO petitions (user_id, type, payload, status) VALUES (?, 'cancel', ?, 'Pending')",
+		userID, payload,
+	)
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
 func getCancelRequestsHandler(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := currentUser(w, r); !ok {
+		return
+	}
 	reqs := []CancelRequest{}
 	rows, err := db.Query("SELECT id, application_id, student_name, company_name, reason, status FROM cancel_requests WHERE status = 'Pending'")
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var cr CancelRequest
-			rows.Scan(&cr.ID, &cr.AppID, &cr.StudentName, &cr.CompanyName, &cr.Reason, &cr.Status)
-			reqs = append(reqs, cr)
-		}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load cancel requests")
+		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(reqs)
+	defer rows.Close()
+	for rows.Next() {
+		var cr CancelRequest
+		if err := rows.Scan(&cr.ID, &cr.AppID, &cr.StudentName, &cr.CompanyName, &cr.Reason, &cr.Status); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to read cancel requests")
+			return
+		}
+		reqs = append(reqs, cr)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read cancel requests")
+		return
+	}
+	writeJSON(w, http.StatusOK, reqs)
 }
 
 func resolveCancelHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(http.StatusOK)
+	if _, _, ok := currentUser(w, r); !ok {
 		return
 	}
 	var req struct {
@@ -217,60 +384,140 @@ func resolveCancelHandler(w http.ResponseWriter, r *http.Request) {
 		AppID  string `json:"application_id"`
 		Action string `json:"action"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
 	status := "Rejected"
 	if req.Action == "approve" {
 		status = "Approved"
 	}
-	db.Exec("UPDATE cancel_requests SET status = ? WHERE id = ?", status, req.ID)
-	if req.Action == "approve" {
-		idStr := strings.ReplaceAll(req.AppID, "APP-", "")
-		dbID, _ := strconv.Atoi(idStr)
-		db.Exec("UPDATE applications SET status = 'Canceled' WHERE id = ?", dbID)
+	if _, err := db.Exec("UPDATE cancel_requests SET status = ? WHERE id = ?", status, req.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update cancel request")
+		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"success": true}`)
+	if req.Action == "approve" {
+		if dbID, valid := parseAppID(req.AppID); valid {
+			_, _ = db.Exec("UPDATE applications SET status = 'Canceled' WHERE id = ?", dbID)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
 func evaluateStudentHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(http.StatusOK)
+	userID, _, ok := currentUser(w, r)
+	if !ok {
 		return
 	}
 	var req EvaluateRequest
-	json.NewDecoder(r.Body).Decode(&req)
-	db.Exec("INSERT INTO evaluations (application_id, score, comment) VALUES (?, ?, ?)", req.AppID, req.Score, req.Comment)
-	idStr := strings.ReplaceAll(req.AppID, "APP-", "")
-	dbID, _ := strconv.Atoi(idStr)
-	db.Exec("UPDATE applications SET status = 'Completed' WHERE id = ?", dbID)
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"success": true}`)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	appID, valid := parseAppID(req.AppID)
+	if !valid || !canAccessApplication(userID, roleCompany, appID) {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	if _, err := db.Exec("INSERT INTO evaluations (application_id, score, comment) VALUES (?, ?, ?)", req.AppID, req.Score, req.Comment); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save evaluation")
+		return
+	}
+	_, _ = db.Exec("UPDATE applications SET status = 'Completed' WHERE id = ? AND company_user_id = ?", appID, userID)
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
 func getEvaluationsHandler(w http.ResponseWriter, r *http.Request) {
+	userID, role, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
 	evals := []EvaluateRequest{}
 	rows, err := db.Query("SELECT application_id, score, comment FROM evaluations")
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var e EvaluateRequest
-			rows.Scan(&e.AppID, &e.Score, &e.Comment)
-			evals = append(evals, e)
-		}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load evaluations")
+		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(evals)
+	defer rows.Close()
+	for rows.Next() {
+		var e EvaluateRequest
+		if err := rows.Scan(&e.AppID, &e.Score, &e.Comment); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to read evaluations")
+			return
+		}
+		if role == roleCompany {
+			appID, valid := parseAppID(e.AppID)
+			if !valid || !canAccessApplication(userID, roleCompany, appID) {
+				continue
+			}
+		}
+		evals = append(evals, e)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read evaluations")
+		return
+	}
+	writeJSON(w, http.StatusOK, evals)
+}
+
+// geminiTotalTimeout caps one AI request end to end (model fallback loop
+// included). It stays under the 70s client abort so the backend never keeps
+// working on a response the browser already gave up on.
+const geminiTotalTimeout = 55 * time.Second
+
+// geminiAttemptTimeout stops a single slow model from eating the whole budget.
+const geminiAttemptTimeout = 30 * time.Second
+
+// writeAIError maps a Gemini failure to 504 on timeout and 500 otherwise, so the
+// frontend never receives HTTP 200 with a null body.
+func writeAIError(w http.ResponseWriter, scope string, err error) {
+	log.Printf("%s gemini: %v", scope, err)
+	if isTimeoutErr(err) {
+		writeError(w, http.StatusGatewayTimeout, "AI request timed out")
+		return
+	}
+	writeError(w, http.StatusInternalServerError, "AI Error: ระบบ AI ไม่ตอบสนอง กรุณาลองใหม่อีกครั้ง")
 }
 
 func callGeminiAPI(prompt string, base64Data string, mimeType string) (string, error) {
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	models := []string{"gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"}
+	ctx, cancel := context.WithTimeout(context.Background(), geminiTotalTimeout)
+	defer cancel()
+	return callGeminiGenerate(ctx, prompt, base64Data, mimeType, false)
+}
+
+func callGeminiJSON(prompt string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), geminiTotalTimeout)
+	defer cancel()
+
+	text, err := callGeminiGenerate(ctx, prompt, "", "", true)
+	if err == nil {
+		return text, nil
+	}
+	// The plain-text retry shares the same deadline instead of starting a new one.
+	if ctx.Err() != nil {
+		return "", err
+	}
+	return callGeminiGenerate(ctx, prompt, "", "", false)
+}
+
+func callGeminiGenerate(ctx context.Context, prompt string, base64Data string, mimeType string, jsonMode bool) (string, error) {
+	apiKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
+	if apiKey == "" {
+		return "", fmt.Errorf("GEMINI_API_KEY is not configured")
+	}
+
+	models := []string{"gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"}
 	var lastErr error
 	for _, modelName := range models {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			if lastErr == nil {
+				lastErr = ctxErr
+			}
+			return "", fmt.Errorf("gemini deadline exceeded: %v", lastErr)
+		}
 		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, apiKey)
 		parts := []map[string]interface{}{{"text": prompt}}
 
-		// 🚨 จุดที่แก้แล้ว: ใช้ inlineData และ mimeType (ตัวพิมพ์ใหญ่ ไม่มีขีดล่าง)
 		if base64Data != "" {
 			if mimeType == "" {
 				mimeType = "image/png"
@@ -278,166 +525,233 @@ func callGeminiAPI(prompt string, base64Data string, mimeType string) (string, e
 			parts = append(parts, map[string]interface{}{"inlineData": map[string]string{"mimeType": mimeType, "data": base64Data}})
 		}
 
-		jsonData, _ := json.Marshal(map[string]interface{}{"contents": []map[string]interface{}{{"parts": parts}}})
-		req, _ := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-		req.Header.Set("Content-Type", "application/json")
-		client := &http.Client{Timeout: 60 * time.Second}
-		resp, err := client.Do(req)
+		payload := map[string]interface{}{
+			"contents": []map[string]interface{}{{"parts": parts}},
+		}
+		if jsonMode {
+			payload["generationConfig"] = map[string]interface{}{
+				"temperature":      0.4,
+				"responseMimeType": "application/json",
+			}
+		}
+
+		jsonData, err := json.Marshal(payload)
 		if err != nil {
+			return "", err
+		}
+		attemptCtx, cancelAttempt := context.WithTimeout(ctx, geminiAttemptTimeout)
+		req, err := http.NewRequestWithContext(attemptCtx, "POST", url, bytes.NewBuffer(jsonData))
+		if err != nil {
+			cancelAttempt()
+			return "", err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			cancelAttempt()
 			lastErr = err
 			continue
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		cancelAttempt()
 		if resp.StatusCode != http.StatusOK {
-			lastErr = fmt.Errorf("API Error: %s", string(body))
+			lastErr = fmt.Errorf("%s: %s", modelName, strings.TrimSpace(string(body)))
 			continue
 		}
-		var res map[string]interface{}
-		json.Unmarshal(body, &res)
-		if c, ok := res["candidates"].([]interface{}); ok && len(c) > 0 {
-			if text, ok := c[0].(map[string]interface{})["content"].(map[string]interface{})["parts"].([]interface{})[0].(map[string]interface{})["text"].(string); ok {
-				return text, nil
-			}
+		text, err := geminiTextFromBody(body)
+		if err != nil {
+			lastErr = fmt.Errorf("%s: %w", modelName, err)
+			continue
 		}
-		lastErr = fmt.Errorf("unexpected response structure from %s", modelName)
+		return text, nil
 	}
 	return "", fmt.Errorf("all models failed: %v", lastErr)
 }
 
+func geminiTextFromBody(body []byte) (string, error) {
+	var res struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		return "", err
+	}
+	if res.Error != nil && strings.TrimSpace(res.Error.Message) != "" {
+		return "", fmt.Errorf("%s", res.Error.Message)
+	}
+	for _, candidate := range res.Candidates {
+		for _, part := range candidate.Content.Parts {
+			if strings.TrimSpace(part.Text) != "" {
+				return part.Text, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("empty Gemini response")
+}
+
 func extractSkillsGradedHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(http.StatusOK)
+	userID, _, ok := currentUser(w, r)
+	if !ok {
 		return
 	}
 	r.ParseMultipartForm(10 << 20)
 	file, _, _ := r.FormFile("resume")
-	expText := r.FormValue("experience")
+	expText := strings.TrimSpace(r.FormValue("experience"))
 	var base64Data, imageURL, mimeType string
+	var fileBytes []byte
 	if file != nil {
 		defer file.Close()
-		fileBytes, _ := io.ReadAll(file)
+		fileBytes, _ = io.ReadAll(file)
 		mimeType = http.DetectContentType(fileBytes)
 		base64Data = base64.StdEncoding.EncodeToString(fileBytes)
-		filename := fmt.Sprintf("%d_resume.png", time.Now().Unix())
-		out, _ := os.Create("./uploads/" + filename)
-		out.Write(fileBytes)
-		out.Close()
-		scheme := "http"
-		if r.TLS != nil {
-			scheme = "https"
+	}
+	if len(fileBytes) == 0 && expText == "" {
+		writeError(w, http.StatusBadRequest, "resume or experience is required")
+		return
+	}
+
+	promptText := candidateScoringPrompt(expText)
+	aiText, err := callGeminiAPI(promptText, base64Data, mimeType)
+	if err != nil {
+		writeAIError(w, "extract-skills-graded", err)
+		return
+	}
+
+	skills, err := parseGradedSkillsResponse(aiText)
+	if err != nil {
+		log.Printf("extract-skills-graded parse: %v", err)
+		writeError(w, http.StatusInternalServerError, "AI skill extraction failed")
+		return
+	}
+	skills = enforceCandidateSkillGrades(skills, expText)
+
+	if len(fileBytes) > 0 {
+		filename := fmt.Sprintf("%d_%d_resume%s", userID, time.Now().Unix(), uploadExtension(mimeType))
+		out, createErr := os.Create("./uploads/" + filename)
+		if createErr == nil {
+			_, _ = out.Write(fileBytes)
+			_ = out.Close()
+			imageURL = "/api/files/" + filename
 		}
-		imageURL = fmt.Sprintf("%s://%s/uploads/%s", scheme, r.Host, filename)
 	}
-	promptText := fmt.Sprintf(`คุณคือ Senior Technical Recruiter AI จงสกัดทักษะ (Skills) จากเอกสาร/ข้อความ: "%s" ประเมินเกรด A, B, C, D ตามกฎเหล็ก: ตอบกลับเป็น JSON ล้วน: { "skills": [ {"name": "React", "grade": "C", "type": "Hard Skill", "source": "Resume"} ] }`, expText)
-	aiText, _ := callGeminiAPI(promptText, base64Data, mimeType)
-	cleanResponse := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(aiText, "```json", ""), "```", ""))
-	var aiData map[string]interface{}
-	json.Unmarshal([]byte(cleanResponse), &aiData)
-	if aiData == nil {
-		aiData = make(map[string]interface{})
+
+	if err := saveStudentSkills(userID, skills, imageURL); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save extracted skills")
+		return
 	}
-	aiData["resume_url"] = imageURL
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(aiData)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"skills":     skills,
+		"resume_url": imageURL,
+	})
 }
 
 func extractJDHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(http.StatusOK)
+	if _, _, ok := currentUser(w, r); !ok {
 		return
 	}
 	var req ExtractJDRequest
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if strings.TrimSpace(req.Text) == "" {
+		writeError(w, http.StatusBadRequest, "text is required")
+		return
+	}
 	promptText := fmt.Sprintf(`คุณคือ AI ผู้ช่วย HR คัดกรองเรซูเม่ จงอ่าน JD นี้: "%s" สกัดชื่อทักษะ IT พร้อม Weight (CRITICAL, IMPORTANT, STANDARD) ตอบเป็น JSON ล้วน: { "skills": [{"skill": "React", "weight": "CRITICAL"}] }`, req.Text)
-	aiText, _ := callGeminiAPI(promptText, "", "")
+	aiText, err := callGeminiAPI(promptText, "", "")
+	if err != nil {
+		writeAIError(w, "extract-jd", err)
+		return
+	}
 	cleanResponse := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(aiText, "```json", ""), "```", ""))
 	var aiData map[string]interface{}
-	json.Unmarshal([]byte(cleanResponse), &aiData)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(aiData)
+	if err := json.Unmarshal([]byte(cleanResponse), &aiData); err != nil || aiData == nil {
+		log.Printf("extract-jd parse: %v", err)
+		writeError(w, http.StatusInternalServerError, "AI Error: ไม่สามารถอ่านผลลัพธ์จาก AI ได้")
+		return
+	}
+	writeJSON(w, http.StatusOK, aiData)
 }
 
 func matchJobsHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(http.StatusOK)
+	userID, _, ok := currentUser(w, r)
+	if !ok {
 		return
 	}
 	var req struct {
 		Skills []SkillItem `json:"skills"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	matches := []JobMatchResponse{}
-	rows, _ := db.Query("SELECT title, company, required_skills FROM jobs ORDER BY id DESC")
+	if len(req.Skills) == 0 {
+		req.Skills = loadStudentSkills(userID)
+	}
+	rows, err := db.Query("SELECT title, company, required_skills FROM jobs ORDER BY id DESC")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load jobs")
+		return
+	}
 	defer rows.Close()
-	gradeValues := map[string]int{"A": 4, "B": 3, "C": 2, "D": 1}
-	weightMultipliers := map[string]int{"CRITICAL": 3, "IMPORTANT": 2, "STANDARD": 1}
+	matches := []JobMatchResponse{}
 	for rows.Next() {
 		var title, company, reqSkillsStr string
-		rows.Scan(&title, &company, &reqSkillsStr)
+		if err := rows.Scan(&title, &company, &reqSkillsStr); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to read jobs")
+			return
+		}
 		var requiredSkills []JobReqSkill
-		json.Unmarshal([]byte(reqSkillsStr), &requiredSkills)
-		var matched, missing []string
-		totalScore, maxPossibleScore := 0, 0
-		missingCritical := false
-		for _, reqSkill := range requiredSkills {
-			weightVal := weightMultipliers[strings.ToUpper(reqSkill.Weight)]
-			if weightVal == 0 {
-				weightVal = 1
-			}
-			maxPossibleScore += 4 * weightVal
-			found, studentVal := false, 0
-			for _, stdSkill := range req.Skills {
-				if strings.Contains(strings.ToLower(stdSkill.Name), strings.ToLower(reqSkill.Skill)) || strings.Contains(strings.ToLower(reqSkill.Skill), strings.ToLower(stdSkill.Name)) {
-					studentVal = gradeValues[strings.ToUpper(stdSkill.Grade)]
-					if studentVal == 0 {
-						studentVal = 2
-					}
-					matched = append(matched, reqSkill.Skill)
-					found = true
-					break
-				}
-			}
-			if found {
-				totalScore += studentVal * weightVal
-			} else {
-				missing = append(missing, reqSkill.Skill)
-				if strings.ToUpper(reqSkill.Weight) == "CRITICAL" {
-					missingCritical = true
-				}
-			}
+		_ = json.Unmarshal([]byte(reqSkillsStr), &requiredSkills)
+
+		match, rejected := scoreJobMatch(requiredSkills, req.Skills)
+		// A missing critical skill is a hard filter: the job never reaches the
+		// student's recommendation list.
+		if rejected {
+			continue
 		}
-		matchPercent := 0
-		if maxPossibleScore > 0 {
-			matchPercent = (totalScore * 100) / maxPossibleScore
-			if missingCritical && matchPercent > 50 {
-				matchPercent = 50
-			}
-			if matchPercent > 100 {
-				matchPercent = 100
-			}
-		}
-		matches = append(matches, JobMatchResponse{JobTitle: title, Company: company, MatchPercentage: matchPercent, MatchedSkills: matched, MissingSkills: missing})
+		match.JobTitle = title
+		match.Company = company
+		matches = append(matches, match)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(matches)
+	writeJSON(w, http.StatusOK, matches)
 }
 
 func updateStatusHandler(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
 	var req struct {
 		ID     string `json:"id"`
 		Status string `json:"status"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	idStr := strings.ReplaceAll(req.ID, "APP-", "")
-	idStr = strings.TrimLeft(idStr, "0")
-	dbID, _ := strconv.Atoi(idStr)
-	db.Exec("UPDATE applications SET status = ? WHERE id = ?", req.Status, dbID)
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"success": true}`)
+	dbID, valid := parseAppID(req.ID)
+	if !valid || !canAccessApplication(userID, roleCompany, dbID) {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	if _, err := db.Exec("UPDATE applications SET status = ? WHERE id = ? AND company_user_id = ?", req.Status, dbID, userID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update status")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
 func applyJobHandler(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
 	var req struct {
 		Name            string   `json:"name"`
 		JobTitle        string   `json:"job_title"`
@@ -448,78 +762,125 @@ func applyJobHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 	skillsJSON, _ := json.Marshal(req.Skills)
-	db.Exec(`INSERT INTO applications (name, job_title, company, match_percentage, skills, resume_url, status) VALUES (?, ?, ?, ?, ?, ?, 'Pending')`, req.Name, req.JobTitle, req.Company, req.MatchPercentage, string(skillsJSON), req.ResumeURL)
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"success": true}`)
+	_, companyUserID := lookupJobOwner(req.JobTitle, req.Company)
+	_, err := db.Exec(
+		`INSERT INTO applications (name, job_title, company, match_percentage, skills, resume_url, status, student_id, company_user_id)
+		 VALUES (?, ?, ?, ?, ?, ?, 'Pending', ?, ?)`,
+		req.Name, req.JobTitle, req.Company, req.MatchPercentage, string(skillsJSON), req.ResumeURL, userID, companyUserID,
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to apply")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
 func getApplicationsHandler(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
 	apps := []Applicant{}
-	rows, _ := db.Query("SELECT id, name, job_title, company, match_percentage, skills, resume_url, status FROM applications WHERE status = 'Pending'")
+	rows, err := db.Query(
+		"SELECT id, name, job_title, company, match_percentage, skills, resume_url, status FROM applications WHERE status = 'Pending' AND company_user_id = ?",
+		userID,
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load applications")
+		return
+	}
 	defer rows.Close()
 	for rows.Next() {
 		var a Applicant
 		var id int
 		var skillsStr string
-		rows.Scan(&id, &a.Name, &a.JobTitle, &a.Company, &a.MatchPercentage, &skillsStr, &a.ResumeURL, &a.Status)
+		if err := rows.Scan(&id, &a.Name, &a.JobTitle, &a.Company, &a.MatchPercentage, &skillsStr, &a.ResumeURL, &a.Status); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load applications")
+			return
+		}
 		a.ID = fmt.Sprintf("APP-%03d", id)
 		json.Unmarshal([]byte(skillsStr), &a.Skills)
 		apps = append(apps, a)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(apps)
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load applications")
+		return
+	}
+	writeJSON(w, http.StatusOK, apps)
 }
 
 func getHRMatchesHandler(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
 	apps := []Applicant{}
-	rows, _ := db.Query("SELECT id, name, job_title, company, match_percentage, status FROM applications WHERE status IN ('Matched', 'Completed', 'Canceled') ORDER BY id DESC")
+	rows, err := db.Query(
+		"SELECT id, name, job_title, company, match_percentage, status FROM applications WHERE status IN ('Matched', 'Completed', 'Canceled') AND company_user_id = ? ORDER BY id DESC",
+		userID,
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load matches")
+		return
+	}
 	defer rows.Close()
 	for rows.Next() {
 		var app Applicant
 		var id int
-		rows.Scan(&id, &app.Name, &app.JobTitle, &app.Company, &app.MatchPercentage, &app.Status)
+		if err := rows.Scan(&id, &app.Name, &app.JobTitle, &app.Company, &app.MatchPercentage, &app.Status); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load matches")
+			return
+		}
 		app.ID = fmt.Sprintf("APP-%03d", id)
 		apps = append(apps, app)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(apps)
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load matches")
+		return
+	}
+	writeJSON(w, http.StatusOK, apps)
 }
 
 func getMyApplicationsHandler(w http.ResponseWriter, r *http.Request) {
+	userID, role, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
 	myApps := []Applicant{}
-	rows, _ := db.Query("SELECT id, job_title, company, status, name FROM applications ORDER BY id DESC")
+	var rows *sql.Rows
+	var err error
+	if role == roleTeacher {
+		rows, err = db.Query("SELECT id, job_title, company, status, name, IFNULL(student_id, 0) FROM applications ORDER BY id DESC")
+	} else {
+		rows, err = db.Query("SELECT id, job_title, company, status, name, IFNULL(student_id, 0) FROM applications WHERE student_id = ? ORDER BY id DESC", userID)
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load applications")
+		return
+	}
 	defer rows.Close()
 	for rows.Next() {
 		var app Applicant
 		var id int
-		rows.Scan(&id, &app.JobTitle, &app.Company, &app.Status, &app.Name)
+		if err := rows.Scan(&id, &app.JobTitle, &app.Company, &app.Status, &app.Name, &app.StudentID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load applications")
+			return
+		}
 		app.ID = fmt.Sprintf("APP-%03d", id)
 		myApps = append(myApps, app)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(myApps)
-}
-
-func logbookHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "POST" {
-		var l LogbookEntry
-		json.NewDecoder(r.Body).Decode(&l)
-		db.Exec("INSERT INTO logbooks (name, category, activity, blocker) VALUES (?, ?, ?, ?)", l.Name, l.Category, l.Activity, l.Blocker)
-		fmt.Fprintf(w, `{"success": true}`)
-	} else if r.Method == "GET" {
-		logs := []LogbookEntry{}
-		rows, _ := db.Query("SELECT id, name, category, activity, blocker, DATE_FORMAT(created_at, '%Y-%m-%d') FROM logbooks ORDER BY id DESC")
-		defer rows.Close()
-		for rows.Next() {
-			var l LogbookEntry
-			rows.Scan(&l.ID, &l.Name, &l.Category, &l.Activity, &l.Blocker, &l.CreatedAt)
-			logs = append(logs, l)
-		}
-		json.NewEncoder(w).Encode(logs)
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load applications")
+		return
 	}
+	writeJSON(w, http.StatusOK, myApps)
 }
 
 func postJobHandler(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
 	if r.Method == "GET" {
 		type JobResponse struct {
 			Title   string        `json:"title"`
@@ -527,73 +888,160 @@ func postJobHandler(w http.ResponseWriter, r *http.Request) {
 			Skills  []JobReqSkill `json:"skills"`
 		}
 		var jobs []JobResponse
-		rows, _ := db.Query("SELECT title, company, required_skills FROM jobs ORDER BY id DESC")
+		rows, err := db.Query("SELECT title, company, required_skills FROM jobs WHERE user_id = ? ORDER BY id DESC", userID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load jobs")
+			return
+		}
 		defer rows.Close()
 		for rows.Next() {
 			var j JobResponse
 			var skillsStr string
-			rows.Scan(&j.Title, &j.Company, &skillsStr)
+			if err := rows.Scan(&j.Title, &j.Company, &skillsStr); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to load jobs")
+				return
+			}
 			json.Unmarshal([]byte(skillsStr), &j.Skills)
 			jobs = append(jobs, j)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"data": jobs})
+		if err := rows.Err(); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load jobs")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"data": jobs})
 		return
 	}
 	var req PostJobRequest
 	json.NewDecoder(r.Body).Decode(&req)
 	skillsJSON, _ := json.Marshal(req.RequiredSkills)
-	db.Exec("INSERT INTO jobs (title, company, required_skills) VALUES (?, ?, ?)", req.Title, req.Company, string(skillsJSON))
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"success": true}`)
+	if _, err := db.Exec("INSERT INTO jobs (title, company, required_skills, user_id) VALUES (?, ?, ?, ?)", req.Title, req.Company, string(skillsJSON), userID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to post job")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
 func sendChatHandler(w http.ResponseWriter, r *http.Request) {
+	userID, role, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
 	var msg ChatMessage
 	json.NewDecoder(r.Body).Decode(&msg)
-	db.Exec("INSERT INTO chat_messages (application_id, sender, text) VALUES (?, ?, ?)", msg.ApplicationID, msg.Sender, msg.Text)
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"success": true}`)
+	if !canAccessChatThread(userID, role, msg.ApplicationID) {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	if _, err := db.Exec(
+		"INSERT INTO chat_messages (application_id, sender, text) VALUES (?, ?, ?)",
+		canonicalChatThread(msg.ApplicationID), role, msg.Text,
+	); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to send message")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
 func getChatMessagesHandler(w http.ResponseWriter, r *http.Request) {
-	msgs := []ChatMessage{}
+	userID, role, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
 	appID := r.URL.Query().Get("application_id")
-	rows, _ := db.Query("SELECT id, application_id, sender, text, created_at FROM chat_messages WHERE application_id = ? ORDER BY id ASC", appID)
+	if !canAccessChatThread(userID, role, appID) {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	msgs := []ChatMessage{}
+	rows, err := db.Query(
+		"SELECT id, application_id, sender, text, created_at FROM chat_messages WHERE application_id = ? ORDER BY id ASC",
+		canonicalChatThread(appID),
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load messages")
+		return
+	}
 	defer rows.Close()
 	for rows.Next() {
 		var m ChatMessage
 		var t time.Time
-		rows.Scan(&m.ID, &m.ApplicationID, &m.Sender, &m.Text, &t)
+		if err := rows.Scan(&m.ID, &m.ApplicationID, &m.Sender, &m.Text, &t); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load messages")
+			return
+		}
 		m.CreatedAt = t.Local().Format("15:04 น.")
 		msgs = append(msgs, m)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(msgs)
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load messages")
+		return
+	}
+	writeJSON(w, http.StatusOK, msgs)
 }
 
 func generateQuestionsHandler(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := currentUser(w, r); !ok {
+		return
+	}
 	var req GenerateQuestionsRequest
-	json.NewDecoder(r.Body).Decode(&req)
-	aiText, _ := callGeminiAPI(fmt.Sprintf("คุณคือกรรมการสัมภาษณ์งาน ช่วยคิดคำถามตำแหน่ง %s จำนวน 3 ข้อ พร้อมแนวทางการตอบ", req.JobTitle), "", "")
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"questions": aiText})
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	aiText, err := callGeminiAPI(fmt.Sprintf("คุณคือกรรมการสัมภาษณ์งาน ช่วยคิดคำถามตำแหน่ง %s จำนวน 3 ข้อ พร้อมแนวทางการตอบ", req.JobTitle), "", "")
+	if err != nil {
+		writeAIError(w, "generate-questions", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"questions": aiText})
 }
 
 func generateEmailHandler(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := currentUser(w, r); !ok {
+		return
+	}
 	var req GenerateEmailRequest
-	json.NewDecoder(r.Body).Decode(&req)
-	aiText, _ := callGeminiAPI(fmt.Sprintf("ร่างอีเมลสมัครงานภาษาไทยเป็นทางการ ชื่อ %s ตำแหน่ง %s บริษัท %s ทักษะ %s", req.Name, req.JobTitle, req.Company, strings.Join(req.Skills, ", ")), "", "")
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"email": aiText})
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	aiText, err := callGeminiAPI(fmt.Sprintf("ร่างอีเมลสมัครงานภาษาไทยเป็นทางการ ชื่อ %s ตำแหน่ง %s บริษัท %s ทักษะ %s", req.Name, req.JobTitle, req.Company, strings.Join(req.Skills, ", ")), "", "")
+	if err != nil {
+		writeAIError(w, "generate-email", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"email": aiText})
+}
+
+const defaultAllowedOrigin = "http://localhost:5173"
+
+// allowedOrigins reads CORS_ALLOWED_ORIGINS (a comma separated list, or "*" to
+// opt out of the allow list explicitly). It defaults to the local Vite dev
+// server so that no deployment serves a wildcard by accident.
+func allowedOrigins() map[string]bool {
+	allowed := map[string]bool{}
+	for _, origin := range strings.Split(envOrDefault("CORS_ALLOWED_ORIGINS", defaultAllowedOrigin), ",") {
+		if origin = strings.TrimRight(strings.TrimSpace(origin), "/"); origin != "" {
+			allowed[origin] = true
+		}
+	}
+	return allowed
 }
 
 func enableCORS(next http.Handler) http.Handler {
+	allowed := allowedOrigins()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := strings.TrimRight(strings.TrimSpace(r.Header.Get("Origin")), "/")
+		switch {
+		case allowed["*"]:
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		case origin != "" && allowed[origin]:
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		if r.Method == "OPTIONS" {
+		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
 		}

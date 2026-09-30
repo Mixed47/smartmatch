@@ -1,0 +1,28 @@
+# Project: AI-InternMatch (AI-Powered Internship Matching System)
+## Tech Stack
+- Frontend: React.js, Tailwind CSS (Dark Mode Theme)
+- Backend: Go (Golang)
+- Database: MySQL
+- AI Integration: Gemini API (ใช้โมเดล gemini-2.5-flash เป็นหลัก)
+
+## Core Architectural Rules (Strictly Follow)
+
+1. **Security & Authentication:**
+   - ใช้ JWT (JSON Web Token) สำหรับ Authentication
+   - ห้ามใช้ `localStorage` ในการเก็บข้อมูลผู้ใช้ (เช่น Profile, Skills, Logbook) อนุญาตให้เก็บแค่ JWT Token เท่านั้น
+   - การสื่อสารระหว่าง Frontend และ Backend ต้องแนบ Header `Authorization: Bearer <token>` เสมอ
+   - ระบบ Login/Register ต้องรองรับ MFA (TOTP - Time-based One-Time Password)
+
+2. **Database & Data Management:**
+   - **Petitions (คำร้อง):** ใช้ตาราง `petitions` ตารางเดียวครอบคลุมทุกคำร้อง (แยกประเภทด้วยคอลัมน์ `type` เช่น waiver, transfer, leave และเก็บรายละเอียดใน `payload` JSON)
+   - ข้อมูลสกัดจาก AI (Skills, Grades, Evaluations) ต้องบันทึกลง Database ทันที ไม่เก็บไว้ที่ฝั่ง Client
+
+3. **AI Features (Gemini API Integration):**
+   - **Candidate Scoring:** ประเมินทักษะนักศึกษาเป็น 5 ระดับ (S, A, B, C, D) 
+     - *ข้อบังคับเกรด S:* ให้เฉพาะงานระดับ Production, งานรับจ้างจริง, ขึ้นระบบจริง, หรือมีรายได้ (ตรวจสอบจาก Keyword เช่น production, freelance, app store)
+   - **Skill Tagging:** AI ต้องช่วยขยายผลแท็กทักษะอัตโนมัติ (เช่น กรอก "React" AI ต้องเพิ่มแท็ก "Frontend" และ "Web Development" ให้ด้วย)
+   - **Digital Logbook:** AI ต้องวิเคราะห์ `tasks` และ `blocker` รายวัน เพื่อให้ feedback, ให้คะแนน, และแจ้งเตือน (is_critical) หากมีปัญหาร้ายแรง
+
+4. **Code Quality:**
+   - เขียนโค้ดให้คลีน จัดการ Error Handling ให้ครบถ้วน (เช่น 401 Unauthorized ต้องเตะกลับไปหน้า Login)
+   - Backend API ต้องตรวจสอบสิทธิ์ (Role) และเช็ก `user_id` ก่อนแก้ไขหรือดึงข้อมูลเสมอ

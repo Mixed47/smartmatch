@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -47,11 +49,15 @@ type AuthResponse struct {
 
 type errorResponse struct {
 	Error string `json:"error"`
+	// Code lets the client react to a specific failure (for example sending the
+	// user back to the password step) instead of guessing from the HTTP status.
+	Code string `json:"code,omitempty"`
 }
 
 type claims struct {
-	UserID int64  `json:"user_id"`
-	Role   string `json:"role"`
+	UserID  int64  `json:"user_id"`
+	Role    string `json:"role"`
+	Purpose string `json:"purpose,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -65,10 +71,27 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, errorResponse{Error: message})
 }
 
+func writeErrorCode(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, errorResponse{Error: message, Code: code})
+}
+
+func requireDB(w http.ResponseWriter) bool {
+	if db == nil {
+		writeError(w, http.StatusServiceUnavailable, "database is not available")
+		return false
+	}
+	return true
+}
+
+const minJWTSecretLength = 32
+
 func jwtSecret() ([]byte, error) {
 	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
 	if secret == "" {
-		secret = "smartmatch-dev-jwt-secret-change-me"
+		return nil, errors.New("JWT_SECRET is not configured")
+	}
+	if len(secret) < minJWTSecretLength {
+		return nil, fmt.Errorf("JWT_SECRET must be at least %d characters", minJWTSecretLength)
 	}
 	return []byte(secret), nil
 }
@@ -80,8 +103,9 @@ func generateJWT(userID int64, role string) (string, error) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims{
-		UserID: userID,
-		Role:   role,
+		UserID:  userID,
+		Role:    role,
+		Purpose: "access",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -92,8 +116,7 @@ func generateJWT(userID int64, role string) (string, error) {
 }
 
 func RegisterHandler(w http.ResponseWriter, r *http.Request) {
-	if db == nil {
-		writeError(w, http.StatusServiceUnavailable, "database is not available")
+	if !requireDB(w) {
 		return
 	}
 
@@ -136,9 +159,17 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	secret, otpauthURL, qrDataURL, err := generateTOTPSetup(req.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate MFA secret")
+		return
+	}
+
+	// mfa_enabled stays 0 until the user proves they hold the secret by passing
+	// the first TOTP challenge, so an un-scanned QR can still be re-issued.
 	result, err := db.Exec(
-		"INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)",
-		req.Email, string(hash), req.Role,
+		"INSERT INTO users (email, password_hash, role, mfa_secret, mfa_enabled) VALUES (?, ?, ?, ?, 0)",
+		req.Email, string(hash), req.Role, secret,
 	)
 	if err != nil {
 		var mysqlErr *mysql.MySQLError
@@ -157,16 +188,19 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"message": "registered successfully",
-		"user_id": userID,
-		"email":   req.Email,
-		"role":    req.Role,
+		"message":         "registered successfully",
+		"user_id":         userID,
+		"email":           req.Email,
+		"role":            req.Role,
+		"mfa_enabled":     false,
+		"mfa_pending":     true,
+		"otpauth_url":     otpauthURL,
+		"qr_image_base64": qrDataURL,
 	})
 }
 
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
-	if db == nil {
-		writeError(w, http.StatusServiceUnavailable, "database is not available")
+	if !requireDB(w) {
 		return
 	}
 
@@ -185,10 +219,12 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	var userID int64
 	var passwordHash string
 	var role string
+	var mfaSecret string
+	var mfaEnabled bool
 	err := db.QueryRow(
-		"SELECT id, password_hash, role FROM users WHERE email = ?",
+		"SELECT id, password_hash, role, IFNULL(mfa_secret, ''), IFNULL(mfa_enabled, 0) FROM users WHERE email = ?",
 		req.Email,
-	).Scan(&userID, &passwordHash, &role)
+	).Scan(&userID, &passwordHash, &role, &mfaSecret, &mfaEnabled)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusUnauthorized, "invalid email or password")
 		return
@@ -203,18 +239,35 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := generateJWT(userID, role)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate token")
-		return
+	// The enrolment QR is re-issued (after the password check) for as long as
+	// enrolment is incomplete, otherwise a user who never scanned it would be
+	// locked out permanently. Once mfa_enabled is 1 the secret is never exposed.
+	otpauthURL := ""
+	qrDataURL := ""
+	switch {
+	case strings.TrimSpace(mfaSecret) == "":
+		secret, url, qr, genErr := generateTOTPSetup(req.Email)
+		if genErr != nil {
+			writeError(w, http.StatusInternalServerError, "failed to generate MFA secret")
+			return
+		}
+		if _, err := db.Exec("UPDATE users SET mfa_secret = ?, mfa_enabled = 0 WHERE id = ?", secret, userID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to save MFA secret")
+			return
+		}
+		otpauthURL = url
+		qrDataURL = qr
+	case !mfaEnabled:
+		url, qr, setupErr := totpSetupFromSecret(req.Email, mfaSecret)
+		if setupErr != nil {
+			log.Printf("login: rebuild MFA enrolment QR: %v", setupErr)
+			break
+		}
+		otpauthURL = url
+		qrDataURL = qr
 	}
 
-	writeJSON(w, http.StatusOK, AuthResponse{
-		Token:  token,
-		UserID: userID,
-		Email:  req.Email,
-		Role:   role,
-	})
+	writeMFAChallenge(w, userID, req.Email, role, otpauthURL, qrDataURL)
 }
 
 type ctxKey string
@@ -234,6 +287,40 @@ func roleFromContext(ctx context.Context) string {
 	return role
 }
 
+func requireRoles(roles ...string) func(http.Handler) http.Handler {
+	allowed := make(map[string]bool, len(roles))
+	for _, role := range roles {
+		allowed[role] = true
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			role := roleFromContext(r.Context())
+			if !allowed[role] {
+				writeError(w, http.StatusForbidden, "forbidden")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func authed(h http.HandlerFunc, roles ...string) http.Handler {
+	handler := http.Handler(http.HandlerFunc(h))
+	if len(roles) > 0 {
+		handler = requireRoles(roles...)(handler)
+	}
+	return jwtAuthMiddleware(handler)
+}
+
+func currentUser(w http.ResponseWriter, r *http.Request) (int64, string, bool) {
+	id, ok := userIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "not logged in")
+		return 0, "", false
+	}
+	return id, roleFromContext(r.Context()), true
+}
+
 func jwtAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		header := strings.TrimSpace(r.Header.Get("Authorization"))
@@ -248,6 +335,7 @@ func jwtAuthMiddleware(next http.Handler) http.Handler {
 
 		secret, err := jwtSecret()
 		if err != nil {
+			log.Printf("auth: %v", err)
 			writeError(w, http.StatusInternalServerError, "JWT is not configured")
 			return
 		}
@@ -280,6 +368,10 @@ func jwtAuthMiddleware(next http.Handler) http.Handler {
 		tokenClaims, ok := parsed.Claims.(*claims)
 		if !ok || tokenClaims.UserID <= 0 {
 			writeError(w, http.StatusUnauthorized, "invalid token claims")
+			return
+		}
+		if tokenClaims.Purpose == tokenPurposeMFA {
+			writeError(w, http.StatusUnauthorized, "MFA verification required")
 			return
 		}
 

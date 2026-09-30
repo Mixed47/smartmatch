@@ -876,42 +876,6 @@ func getMyApplicationsHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, myApps)
 }
 
-func logbookHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "POST" {
-		var l LogbookEntry
-		if err := json.NewDecoder(r.Body).Decode(&l); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON body")
-			return
-		}
-		if _, err := db.Exec("INSERT INTO logbooks (name, category, activity, blocker) VALUES (?, ?, ?, ?)", l.Name, l.Category, l.Activity, l.Blocker); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to save logbook entry")
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
-	} else if r.Method == "GET" {
-		logs := []LogbookEntry{}
-		rows, err := db.Query("SELECT id, name, category, activity, blocker, DATE_FORMAT(created_at, '%Y-%m-%d') FROM logbooks ORDER BY id DESC")
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to load logbook")
-			return
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var l LogbookEntry
-			if err := rows.Scan(&l.ID, &l.Name, &l.Category, &l.Activity, &l.Blocker, &l.CreatedAt); err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to load logbook")
-				return
-			}
-			logs = append(logs, l)
-		}
-		if err := rows.Err(); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to load logbook")
-			return
-		}
-		writeJSON(w, http.StatusOK, logs)
-	}
-}
-
 func postJobHandler(w http.ResponseWriter, r *http.Request) {
 	userID, _, ok := currentUser(w, r)
 	if !ok {

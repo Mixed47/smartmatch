@@ -79,10 +79,6 @@ function aiErrorMessage(status, serverError, aborted) {
   return authErrorMessage(status, serverError) || 'วิเคราะห์ไม่สำเร็จ กรุณาลองอีกครั้ง';
 }
 
-function clearSession() {
-  clearAuthSession();
-}
-
 function normalizeLogbookEntries(payload) {
   const list = Array.isArray(payload)
     ? payload
@@ -170,8 +166,7 @@ export default function StudentLogbook() {
       const next = normalizeLogbookEntries(data);
       setEntries((prev) => {
         const current = Array.isArray(prev) ? prev : [];
-        if (next.length === 0 && current.length === 0) return current;
-        if (next.length === 0 && current.length > 0) return current;
+        if (next.length === 0) return current;
         return next;
       });
       setAnalyses((prev) => {
@@ -224,7 +219,7 @@ export default function StudentLogbook() {
     const token = localStorage.getItem('token');
     if (!token) {
       setError('ยังไม่ได้เข้าสู่ระบบ กรุณาล็อกอินก่อนบันทึกเล่มสหกิจ');
-      clearSession();
+      clearAuthSession();
       navigate('/login', { replace: true });
       return;
     }

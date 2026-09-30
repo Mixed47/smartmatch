@@ -250,6 +250,18 @@
   .select {
     @apply cursor-pointer appearance-none bg-[length:1.1rem] bg-[right_0.9rem_center] bg-no-repeat pr-11;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='2' stroke='%2359637a'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='m19.5 8.25-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E");
+
+    /* appearance-none hands the dropdown popup back to the browser, which does
+       not inherit the control's colors. Without these the dark-mode text color
+       lands on a light system popup and the options become unreadable. */
+    & option,
+    & optgroup {
+      @apply bg-surface text-ink;
+    }
+
+    .dark & {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='2' stroke='%23a8a8b3'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='m19.5 8.25-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E");
+    }
   }
 
   .input-readonly {

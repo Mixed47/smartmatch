@@ -9,19 +9,19 @@ import (
 )
 
 type StudentProfile struct {
-	FirstName   string      `json:"first_name"`
-	LastName    string      `json:"last_name"`
-	Nickname    string      `json:"nickname"`
-	DOB         string      `json:"dob"`
-	Phone       string      `json:"phone"`
-	Email       string      `json:"email"`
-	University  string      `json:"university"`
-	Major       string      `json:"major"`
-	Address     string      `json:"address"`
-	Github      string      `json:"github"`
-	Skills      []SkillItem `json:"skills"`
-	ResumeURL   string      `json:"resume_url"`
-	Internship  *Internship `json:"internship"`
+	FirstName  string      `json:"first_name"`
+	LastName   string      `json:"last_name"`
+	Nickname   string      `json:"nickname"`
+	DOB        string      `json:"dob"`
+	Phone      string      `json:"phone"`
+	Email      string      `json:"email"`
+	University string      `json:"university"`
+	Major      string      `json:"major"`
+	Address    string      `json:"address"`
+	Github     string      `json:"github"`
+	Skills     []SkillItem `json:"skills"`
+	ResumeURL  string      `json:"resume_url"`
+	Internship *Internship `json:"internship"`
 }
 
 type Internship struct {

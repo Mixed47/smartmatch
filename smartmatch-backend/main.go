@@ -506,7 +506,7 @@ func callGeminiGenerate(ctx context.Context, prompt string, base64Data string, m
 		return "", fmt.Errorf("GEMINI_API_KEY is not configured")
 	}
 
-	models := []string{"gemini-1.5-flash-latest"}
+	models := []string{"gemini-1.5-flash"}
 	var lastErr error
 	for _, modelName := range models {
 		if ctxErr := ctx.Err(); ctxErr != nil {

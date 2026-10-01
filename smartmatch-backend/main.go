@@ -506,7 +506,9 @@ func callGeminiGenerate(ctx context.Context, prompt string, base64Data string, m
 		return "", fmt.Errorf("GEMINI_API_KEY is not configured")
 	}
 
-	models := []string{"gemini-2.5-flash"}
+	// 1.5-flash is retired (404). 2.5-flash is the current stable model;
+	// 2.0-flash is a faster fallback. generateContent is documented on v1beta.
+	models := []string{"gemini-2.5-flash", "gemini-2.0-flash"}
 	var lastErr error
 	for _, modelName := range models {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -515,7 +517,7 @@ func callGeminiGenerate(ctx context.Context, prompt string, base64Data string, m
 			}
 			return "", fmt.Errorf("gemini deadline exceeded: %v", lastErr)
 		}
-		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1/models/%s:generateContent?key=%s", modelName, apiKey)
+		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", modelName)
 		parts := []map[string]interface{}{{"text": prompt}}
 
 		if base64Data != "" {
@@ -525,14 +527,21 @@ func callGeminiGenerate(ctx context.Context, prompt string, base64Data string, m
 			parts = append(parts, map[string]interface{}{"inlineData": map[string]string{"mimeType": mimeType, "data": base64Data}})
 		}
 
-		payload := map[string]interface{}{
-			"contents": []map[string]interface{}{{"parts": parts}},
+		generationConfig := map[string]interface{}{
+			"temperature":     0.4,
+			"maxOutputTokens": 4096,
 		}
 		if jsonMode {
-			payload["generationConfig"] = map[string]interface{}{
-				"temperature":      0.4,
-				"responseMimeType": "application/json",
-			}
+			generationConfig["responseMimeType"] = "application/json"
+		}
+		// 2.5-flash thinks by default and routinely exceeds the 30s attempt budget.
+		if strings.HasPrefix(modelName, "gemini-2.5") {
+			generationConfig["thinkingConfig"] = map[string]interface{}{"thinkingBudget": 0}
+		}
+
+		payload := map[string]interface{}{
+			"contents":         []map[string]interface{}{{"parts": parts}},
+			"generationConfig": generationConfig,
 		}
 
 		jsonData, err := json.Marshal(payload)
@@ -546,6 +555,7 @@ func callGeminiGenerate(ctx context.Context, prompt string, base64Data string, m
 			return "", err
 		}
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-goog-api-key", apiKey)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			cancelAttempt()

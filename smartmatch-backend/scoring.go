@@ -239,6 +239,13 @@ func isASCIIWord(s string) bool {
 	return true
 }
 
+func masterSkillNormalizationRules() string {
+	return `Master Skill List (ตัวอย่างทักษะยอดฮิต — ใช้ชื่อมาตรฐานเหล่านี้เมื่อความหมายตรงกัน):
+React, Vue, Angular, Next.js, HTML, CSS, Tailwind, JavaScript, TypeScript, Node.js, Express, Go, Python, Java, C++, C#, PHP, Django, Flask, Spring, MySQL, MongoDB, PostgreSQL, Redis, Database Management, UI/UX Design, Figma, Docker, Kubernetes, AWS, Git, Flutter, React Native, Dart, Frontend, Backend, Web Development
+
+คุณต้อง Map คำศัพท์ที่สกัดได้จากเอกสาร เข้ากับชื่อทักษะใน Master List หรือชื่อทักษะที่เป็นมาตรฐานสากลเท่านั้น ห้ามสร้างคำศัพท์แยกย่อยที่ความหมายเหมือนกัน (เช่น Database Design กับ Database Development ให้รวบเป็น Database Management หรือเทียบเท่า)`
+}
+
 func candidateScoringPrompt(experience string) string {
 	return fmt.Sprintf(`คุณคือ Senior Technical Recruiter AI ของระบบ AI-InternMatch
 จงอ่านเรซูเม่/ทรานสคริปต์/ข้อความประสบการณ์ทีละประโยค (Evidence) แล้วค่อยตัดสินเกรดตามกฎด้านล่างแบบเป๊ะๆ ห้ามคิดเกณฑ์เอง ห้ามมีข้อความนอก JSON
@@ -248,6 +255,8 @@ func candidateScoringPrompt(experience string) string {
 
 โครงสร้างบังคับ:
 { "skills": [ {"name": "React", "grade": "A", "type": "Hard Skill", "source": "ประโยคหลักฐานที่ใช้อ้าง"} ] }
+
+%s
 
 Strict Instruction (บังคับ):
 คุณต้องให้เกรด S, A, B, C, D ตามกฎอย่างเคร่งครัด ห้ามให้เกรด S กับงานที่เป็นโปรเจกต์จบ (Senior Project) หรือการบ้านรายวิชาเด็ดขาด งานเหล่านั้นต้องได้เกรด A หรือ B เท่านั้น
@@ -281,7 +290,20 @@ Skill Tagging (บังคับ):
 ทักษะคอมพิวเตอร์และภาษา เช่น React, Go ต้องเพิ่มแท็กกลุ่มเข้าไปในรายการ skills ด้วยเสมอ เช่น
 - React -> Frontend และ Web Development
 - Go -> Backend
-แท็กกลุ่มใช้เกรดเดียวกับทักษะหลักที่โยงมา`, strings.TrimSpace(experience))
+แท็กกลุ่มใช้เกรดเดียวกับทักษะหลักที่โยงมา และต้องใช้ชื่อจาก Master Skill List เท่านั้น`, strings.TrimSpace(experience), masterSkillNormalizationRules())
+}
+
+func jdExtractionPrompt(jdText string) string {
+	return fmt.Sprintf(`คุณคือ AI ผู้ช่วย HR คัดกรองเรซูเม่ จงอ่าน JD นี้แล้วสกัดชื่อทักษะ IT พร้อม Weight (CRITICAL, IMPORTANT, STANDARD)
+ตอบเป็น JSON ล้วนเท่านั้น ห้ามมี markdown หรือข้อความนอก JSON
+
+JD:
+%s
+
+โครงสร้างบังคับ:
+{ "skills": [{"skill": "React", "weight": "CRITICAL"}] }
+
+%s`, strings.TrimSpace(jdText), masterSkillNormalizationRules())
 }
 
 func skillGradeEvidence(skill SkillItem, sharedEvidence string) string {

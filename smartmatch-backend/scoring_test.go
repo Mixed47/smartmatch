@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestLooksProductionLevel(t *testing.T) {
 	if looksProductionLevel("เขียน product backlog และประชุมทีม") {
@@ -111,6 +114,26 @@ func TestLetterGradeScoreCountsSHighest(t *testing.T) {
 	gradeValues := map[string]int{"S": 5, "A": 4, "B": 3, "C": 2, "D": 1}
 	if gradeValues["S"] <= gradeValues["A"] {
 		t.Fatal("S must outrank A in job matching")
+	}
+}
+
+func TestSkillExtractionPromptsNormalizeToMasterList(t *testing.T) {
+	required := "คุณต้อง Map คำศัพท์ที่สกัดได้จากเอกสาร เข้ากับชื่อทักษะใน Master List หรือชื่อทักษะที่เป็นมาตรฐานสากลเท่านั้น ห้ามสร้างคำศัพท์แยกย่อยที่ความหมายเหมือนกัน (เช่น Database Design กับ Database Development ให้รวบเป็น Database Management หรือเทียบเท่า)"
+	for name, prompt := range map[string]string{
+		"resume": candidateScoringPrompt("ใช้ React"),
+		"jd":     jdExtractionPrompt("ต้องการ React และ Database Design"),
+	} {
+		if !strings.Contains(prompt, "Master Skill List") {
+			t.Fatalf("%s prompt missing Master Skill List", name)
+		}
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("%s prompt missing mapping rule", name)
+		}
+		for _, skill := range []string{"React", "Vue", "Node.js", "Go", "Python", "Java", "C++", "MySQL", "MongoDB", "UI/UX Design", "Figma"} {
+			if !strings.Contains(prompt, skill) {
+				t.Fatalf("%s prompt missing master skill %q", name, skill)
+			}
+		}
 	}
 }
 

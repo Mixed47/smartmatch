@@ -683,7 +683,7 @@ func extractJDHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "text is required")
 		return
 	}
-	promptText := fmt.Sprintf(`คุณคือ AI ผู้ช่วย HR คัดกรองเรซูเม่ จงอ่าน JD นี้: "%s" สกัดชื่อทักษะ IT พร้อม Weight (CRITICAL, IMPORTANT, STANDARD) ตอบเป็น JSON ล้วน: { "skills": [{"skill": "React", "weight": "CRITICAL"}] }`, req.Text)
+	promptText := jdExtractionPrompt(req.Text)
 	aiText, err := callGeminiAPI(promptText, "", "")
 	if err != nil {
 		writeAIError(w, "extract-jd", err)

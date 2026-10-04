@@ -100,14 +100,21 @@ var freelanceKeywords = []string{
 var internshipContextKeywords = []string{
 	"internship",
 	"intern",
-	"intern student",
-	"co-op",
-	"coop",
-	"cooperative education",
 	"ฝึกงาน",
 	"นักศึกษาฝึกงาน",
-	"สหกิจ",
 	"สหกิจศึกษา",
+}
+
+var commercialRoleKeywords = []string{
+	"programmer",
+	"developer",
+	"software engineer",
+	"software developer",
+	"freelance",
+	"freelancing",
+	"ทำงาน",
+	"ทำงานประจำ",
+	"รับจ้าง",
 }
 
 var workExperienceKeywords = []string{
@@ -126,6 +133,10 @@ var workExperienceKeywords = []string{
 	"ทำงานที่",
 	"พนักงาน",
 	"ลูกค้าองค์กร",
+	"programmer",
+	"developer",
+	"software engineer",
+	"software developer",
 }
 
 var seniorProjectKeywords = []string{
@@ -205,6 +216,10 @@ func looksInternshipLevel(text string) bool {
 	return containsAnyKeyword(text, internshipContextKeywords)
 }
 
+func looksCommercialRoleLevel(text string) bool {
+	return containsAnyKeyword(text, commercialRoleKeywords)
+}
+
 func hasProductionOrFreelanceEvidence(text string) bool {
 	return looksProductionLevel(text) || looksFreelanceLevel(text)
 }
@@ -213,13 +228,14 @@ func blocksGradeS(text string) bool {
 	return looksInternshipLevel(text) || looksSeniorProjectLevel(text)
 }
 
-// hasGradeSEvidence is commercial Full-time / Freelance / production only.
-// Internship, coop, and senior-project context never qualify for S.
+// hasGradeSEvidence allows S for commercial roles (Programmer, Developer,
+// ทำงาน, Freelance) and production work. The intern/senior-project ban
+// applies only when those exact context words appear on the skill itself.
 func hasGradeSEvidence(text string) bool {
 	if blocksGradeS(text) {
 		return false
 	}
-	return hasProductionOrFreelanceEvidence(text) || looksWorkExperienceLevel(text)
+	return hasProductionOrFreelanceEvidence(text) || looksWorkExperienceLevel(text) || looksCommercialRoleLevel(text)
 }
 
 func containsAnyKeyword(text string, keywords []string) bool {
@@ -283,30 +299,32 @@ func candidateScoringPrompt(experience string) string {
 
 [CRITICAL GRADING RULES]
 บังคับให้อ่าน 'บริบทลำดับชั้น (Hierarchical Context)' ต้องดูว่าทักษะนั้นอยู่ใต้หัวข้อ (Heading) หรือตำแหน่ง (Role) อะไร แล้วใส่หัวข้อ/ตำแหน่งนั้นใน field source เสมอ
-กฎห้ามเกรด S เด็ดขาด: หากทักษะอยู่ภายใต้ประสบการณ์ที่ระบุว่าเป็น 'ฝึกงาน', 'นักศึกษาฝึกงาน', 'Internship', 'สหกิจศึกษา' หรือ 'โปรเจกต์จบ' ห้ามให้เกรด S อย่างเด็ดขาด ให้สูงสุดได้แค่เกรด A เท่านั้น (ต่อให้ผลงานจะเขียนว่าพัฒนาระบบจริงให้บริษัทก็ตาม)
-เกรด S จะให้ได้ก็ต่อเมื่ออยู่ในหัวข้อ ทำงานประจำ (Full-time), รับจ้าง (Freelance) ที่เป็นงาน Commercial จริงๆ เท่านั้น
+กฎห้ามเกรด S (บังคับเกรด A สูงสุด) มีผลเฉพาะประสบการณ์ที่มีคำว่า 'ฝึกงาน', 'นักศึกษาฝึกงาน', 'Internship', 'สหกิจศึกษา' หรือ 'โปรเจกต์จบ' เท่านั้น ห้ามเอาคำเหล่านี้ไปบล็อกทักษะที่อยู่คนละหัวข้อ
+หากทักษะอยู่ภายใต้หัวข้อที่เป็นการทำงานประจำ เช่น 'Programmer', 'Developer', 'ทำงาน' หรือ 'Freelance' ต้องอนุญาตให้เกรด S ได้อย่างอิสระเมื่อมีหลักฐานงานจริง ห้ามปฏิเสธเกรด S เพียงเพราะผู้สมัครเป็นนักศึกษา
 
 Strict Instruction (บังคับ):
-คุณต้องให้เกรด S, A, B, C, D ตามกฎอย่างเคร่งครัด ห้ามให้เกรด S กับงานที่เป็นโปรเจกต์จบ (Senior Project) ฝึกงาน Internship สหกิจศึกษา หรือการบ้านรายวิชาเด็ดขาด งานเหล่านั้นต้องได้เกรด A หรือ B เท่านั้น
+คุณต้องให้เกรด S, A, B, C, D ตามกฎอย่างเคร่งครัด ห้ามให้เกรด S เฉพาะเมื่องานนั้นมีคำว่าฝึกงาน Internship สหกิจศึกษา หรือโปรเจกต์จบ การบ้านรายวิชาได้สูงสุดเกรด B
 
 กฎเกรด (ใช้ตามนี้เท่านั้น):
-- เกรด S: เฉพาะทักษะที่อยู่ภายใต้หัวข้อทำงานประจำ (Full-time) หรือรับจ้าง (Freelance) ที่เป็นงาน Commercial จริงเท่านั้น
-- เกรด A: ทักษะที่ได้ "เกรด A ในทรานสคริปต์" หรือใช้ใน "การทำโปรเจกต์จบ (Senior Project/Thesis)" หรืออยู่ใต้หัวข้อฝึกงาน / นักศึกษาฝึกงาน / Internship / สหกิจศึกษา แม้จะพัฒนาระบบจริงให้บริษัท
+- เกรด S: ทักษะที่อยู่ภายใต้หัวข้องานประจำ เช่น Programmer, Developer, ทำงาน, Full-time หรือรับจ้าง Freelance ที่เป็นงาน Commercial / Production จริง ให้อิสระในการให้ S
+- เกรด A: ทักษะที่ได้ "เกรด A ในทรานสคริปต์" หรือประสบการณ์ที่มีคำว่าฝึกงาน / นักศึกษาฝึกงาน / Internship / สหกิจศึกษา / โปรเจกต์จบ แม้จะพัฒนาระบบจริงให้บริษัท
 - เกรด B: ทักษะที่ได้ "เกรด B ในทรานสคริปต์" หรือ ใช้ใน "การทำงานรายวิชาทั่วไป (Coursework Project) / การบ้านรายวิชา"
 - เกรด C: ทักษะที่ได้ "เกรด C ในทรานสคริปต์" หรือ "ในเรซูเม่เขียนระบุมาแค่ชื่อทักษะลอยๆ แต่ไม่ได้เขียนอธิบายเจาะลึกว่าเอาไปทำอะไร"
 - เกรด D: ทักษะที่ได้ "เกรด D ในทรานสคริปต์" หรือ "เพิ่งเริ่มเรียนรู้/กำลังศึกษาเบื้องต้น"
 
 วิธีตัดสิน:
-1. อ่าน Hierarchical Context (Heading/Role) ก่อน แล้วค่อยจับ Evidence ของแต่ละทักษะ และใส่หัวข้อนั้นใน field source
-2. ตัดสินเกรดจากบริบทหัวข้อของทักษะนั้นเป็นหลัก ห้ามยืมหลักฐานของทักษะหรือหัวข้ออื่นมาอัปเกรด
-3. ห้ามให้ S หากอยู่ใต้ฝึกงาน / นักศึกษาฝึกงาน / Internship / สหกิจศึกษา / โปรเจกต์จบ ต่อให้เขียนว่าพัฒนาระบบจริงให้บริษัท
+1. อ่าน Hierarchical Context (Heading/Role) ของทักษะนั้นเองก่อน แล้วใส่หัวข้อนั้นใน field source ห้ามยืมคำว่าฝึกงานจากหัวข้ออื่นมาบล็อก
+2. ตัดสินเกรดจากบริบทหัวข้อของทักษะนั้นเป็นหลัก ห้ามยืมหลักฐานของทักษะหรือหัวข้ออื่นมาอัปเกรดหรือดาวน์เกรด
+3. ห้ามให้ S เฉพาะเมื่อ source ของทักษะนั้นมีคำว่าฝึกงาน / นักศึกษาฝึกงาน / Internship / สหกิจศึกษา / โปรเจกต์จบ
 4. ห้ามให้เกรด S กับการบ้านรายวิชา แม้เทคโนโลยีจะซับซ้อนแค่ไหน
-5. ห้ามให้ A แทน S เมื่ออยู่ใต้หัวข้อ Full-time หรือ Freelance commercial จริง
+5. ห้ามให้ A แทน S เมื่ออยู่ใต้หัวข้อ Programmer, Developer, ทำงาน, Full-time หรือ Freelance
 
 ตัวอย่าง (Few-shot — ทำตามนี้เท่านั้น):
 - ตัวอย่าง 1: "พัฒนา Web Application ด้วย React เป็นโปรเจกต์จบ" -> {"name": "React", "grade": "A"}
 - ตัวอย่าง 2: "เรียนรู้ Dart เบื้องต้น" -> {"name": "Dart", "grade": "D"}
 - ตัวอย่าง 3: "รับจ้างทำระบบด้วย Node.js ให้ลูกค้า" -> {"name": "Node.js", "grade": "S"}
+- "Programmer: พัฒนาระบบด้วย React ให้บริษัท" -> grade S
+- "Developer — ทำงานด้าน Node.js" -> grade S
 - "นักศึกษาฝึกงาน: พัฒนาระบบจริงให้บริษัทด้วย React" -> grade A
 - "Internship — Deploy production Node.js ให้บริษัท" -> grade A
 - "สหกิจศึกษา พัฒนาระบบจริงให้บริษัท" -> grade A
@@ -365,9 +383,15 @@ func enforceCandidateSkillGrades(skills []SkillItem, evidenceTexts ...string) []
 			grade = "C"
 		}
 		if grade == "S" {
+			// Ban intern/senior-project S using this skill's own source only,
+			// so a Programmer role is not blocked by an internship heading elsewhere.
+			hierarchy := strings.TrimSpace(skill.Source)
+			if hierarchy == "" {
+				hierarchy = strings.TrimSpace(sharedEvidence)
+			}
 			evidence := skillGradeEvidence(skill, sharedEvidence)
 			switch {
-			case looksInternshipLevel(evidence) || looksSeniorProjectLevel(evidence):
+			case looksInternshipLevel(hierarchy) || looksSeniorProjectLevel(hierarchy):
 				grade = "A"
 			case looksCourseworkLevel(evidence):
 				grade = "B"

@@ -92,6 +92,13 @@ func TestEnforceCandidateSkillGradesDowngradesInvalidS(t *testing.T) {
 			t.Fatalf("internship context must cap S at A, evidence=%q got %+v", evidence, got)
 		}
 	}
+
+	got = enforceCandidateSkillGrades([]SkillItem{
+		{Name: "React", Grade: "S", Source: "Programmer: พัฒนาระบบด้วย React ให้บริษัท"},
+	}, "เคยฝึกงานที่บริษัทอื่นมาก่อน")
+	if !hasSkillGrade(got, "React", "S") {
+		t.Fatalf("Programmer role must keep S even if resume mentions internship elsewhere, got %+v", got)
+	}
 }
 
 func TestEnforceCandidateSkillGradesKeepsAllThreeSCases(t *testing.T) {
@@ -99,6 +106,9 @@ func TestEnforceCandidateSkillGradesKeepsAllThreeSCases(t *testing.T) {
 		"freelance":       "รับจ้างทำเว็บให้ลูกค้า",
 		"production":      "Deploy ขึ้นระบบจริงให้ผู้ใช้งานจริง",
 		"work experience": "ประสบการณ์ทำงานจริงที่บริษัทซอฟต์แวร์",
+		"programmer":      "Programmer: พัฒนาระบบด้วย React ให้บริษัท",
+		"developer":       "Developer — ทำงานด้าน Node.js",
+		"working":         "ทำงานด้าน Go ที่บริษัทซอฟต์แวร์",
 	}
 	for name, evidence := range cases {
 		got := enforceCandidateSkillGrades([]SkillItem{{Name: "Go", Grade: "S", Source: evidence}})
@@ -135,8 +145,9 @@ func TestCandidateScoringPromptHasHierarchicalSRules(t *testing.T) {
 	for _, needle := range []string{
 		"[CRITICAL GRADING RULES]",
 		"บริบทลำดับชั้น (Hierarchical Context)",
-		"ห้ามให้เกรด S อย่างเด็ดขาด ให้สูงสุดได้แค่เกรด A เท่านั้น",
-		"ทำงานประจำ (Full-time), รับจ้าง (Freelance)",
+		"มีผลเฉพาะประสบการณ์ที่มีคำว่า 'ฝึกงาน', 'นักศึกษาฝึกงาน', 'Internship', 'สหกิจศึกษา' หรือ 'โปรเจกต์จบ' เท่านั้น",
+		"'Programmer', 'Developer', 'ทำงาน' หรือ 'Freelance'",
+		"ต้องอนุญาตให้เกรด S ได้อย่างอิสระ",
 	} {
 		if !strings.Contains(prompt, needle) {
 			t.Fatalf("resume grading prompt missing %q", needle)

@@ -131,20 +131,43 @@ func TestParseGradedSkillsResponseRejectsBadPayload(t *testing.T) {
 }
 
 func TestParseLogbookEvaluationCriticalFlag(t *testing.T) {
-	got, err := parseLogbookEvaluation(`{"feedback":"อันตราย ต้องให้อาจารย์ช่วย","score":"2/10","is_critical":true}`)
+	got, err := parseLogbookEvaluation(`{"feedback":"อันตราย ต้องให้อาจารย์ช่วย","score":"ขั้นร้ายแรง","is_critical":true}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.IsCritical || got.Score != "2/10" {
-		t.Fatalf("expected critical 2/10, got %+v", got)
+	if !got.IsCritical || got.Score != complaintImpactCritical {
+		t.Fatalf("expected critical ขั้นร้ายแรง, got %+v", got)
 	}
 
-	got, err = parseLogbookEvaluation("```json\n{\"feedback\":\"งานชัดเจน\",\"score\":8,\"is_critical\":false}\n```")
+	got, err = parseLogbookEvaluation("```json\n{\"feedback\":\"อากาศร้อน อาหารไม่ถูกปาก\",\"score\":\"ไม่มีผลกระทบ\",\"is_critical\":false}\n```")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.IsCritical || got.Score != "8/10" {
-		t.Fatalf("expected non-critical 8/10, got %+v", got)
+	if got.IsCritical || got.Score != complaintImpactNone {
+		t.Fatalf("expected non-critical ไม่มีผลกระทบ, got %+v", got)
+	}
+
+	got, err = parseLogbookEvaluation(`{"feedback":"พี่เลี้ยงไม่มีเวลาสอน","score":"เริ่มกระทบการทำงาน","is_critical":false}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IsCritical || got.Score != complaintImpactWork {
+		t.Fatalf("expected medium เริ่มกระทบการทำงาน, got %+v", got)
+	}
+
+	got, err = parseLogbookEvaluation(`{"feedback":"ถูกคุกคาม","score":"ขั้นร้ายแรง","is_critical":false}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.IsCritical {
+		t.Fatal("ขั้นร้ายแรง must force is_critical true even if AI sends false")
+	}
+
+	if _, err = parseLogbookEvaluation(`{"feedback":"งานชัดเจน","score":8,"is_critical":false}`); err == nil {
+		t.Fatal("numeric 1-10 scores must be rejected")
+	}
+	if _, err = parseLogbookEvaluation(`{"feedback":"งานชัดเจน","score":"8/10","is_critical":false}`); err == nil {
+		t.Fatal("legacy 8/10 scores must be rejected")
 	}
 }
 

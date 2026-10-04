@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +30,12 @@ type StudentLogbookEntry struct {
 	CreatedAt  string               `json:"created_at"`
 	Evaluation *LogbookAIEvaluation `json:"evaluation,omitempty"`
 }
+
+const (
+	complaintImpactNone     = "ไม่มีผลกระทบ"
+	complaintImpactWork     = "เริ่มกระทบการทำงาน"
+	complaintImpactCritical = "ขั้นร้ายแรง"
+)
 
 type LogbookAIEvaluation struct {
 	Feedback   string `json:"feedback"`
@@ -329,13 +334,14 @@ func evaluateLogbookWithGemini(tasks, blocker string) (LogbookAIEvaluation, erro
 %s
 
 โครงสร้างบังคับ:
-{"feedback":"คำแนะนำสั้นๆ ไม่เกิน 2 บรรทัด เป็นภาษาไทย","score":"8/10","is_critical":false}
+{"feedback":"คำแนะนำสั้นๆ ไม่เกิน 2 บรรทัด เป็นภาษาไทย","score":"ไม่มีผลกระทบ","is_critical":false}
 
-กฎการให้คะแนน:
-- score เป็นคะแนนงานรายวัน 1-10 เท่านั้น เช่น "8/10" ห้ามใช้เกรด S, A, B, C, D
-- ประเมินจากความชัดเจนของงาน ความพยายาม และการจัดการอุปสรรคในวันนั้น
-- is_critical เป็น true เฉพาะเมื่ออุปสรรคร้ายแรงและต้องการความช่วยเหลือจากอาจารย์ด่วน เช่น ความปลอดภัย การกลั่นแกล้ง ไม่มีงานทำ ปัญหาสุขภาพร้ายแรง หรือละเมิดจรรยาบรรณ
-- ถ้าไม่มีอุปสรรค หรือเป็นปัญหาเล็กน้อย/เทคนิคทั่วไป ให้ is_critical เป็น false`, strings.TrimSpace(tasks), blockerText)
+กฎการประเมินผลกระทบ (บังคับ — ใช้ข้อความเหล่านี้เท่านั้น ห้ามใช้ตัวเลข 1-10 และห้ามใช้เกรด S, A, B, C, D):
+- score ต้องเป็นข้อความหนึ่งใน 3 ระดับนี้เท่านั้น: "ไม่มีผลกระทบ", "เริ่มกระทบการทำงาน", "ขั้นร้ายแรง"
+- "ไม่มีผลกระทบ": เรื่องบ่นทั่วไป อาหาร สภาพอากาศ หรือไม่มีอุปสรรคที่กระทบงาน ให้ is_critical เป็น false
+- "เริ่มกระทบการทำงาน": เช่น สั่งงานไม่ตรงสาย พี่เลี้ยงไม่มีเวลาสอน งานไม่ชัดเจน — แจ้งเตือนระดับกลาง ให้ is_critical เป็น false
+- "ขั้นร้ายแรง": เช่น ถูกคุกคาม อันตราย ผิดกฎหมาย ความปลอดภัย การกลั่นแกล้ง หรือละเมิดจรรยาบรรณ — ต้องตั้ง is_critical เป็น true เพื่อเตือนอาจารย์ด่วน
+- ห้ามส่งคะแนนเป็นตัวเลขหรือรูปแบบ "8/10"`, strings.TrimSpace(tasks), blockerText)
 
 	raw, err := callGeminiJSON(prompt)
 	if err != nil {
@@ -351,9 +357,8 @@ func parseLogbookEvaluation(raw string) (LogbookAIEvaluation, error) {
 	}
 
 	var parsed struct {
-		Feedback   string      `json:"feedback"`
-		Score      interface{} `json:"score"`
-		IsCritical interface{} `json:"is_critical"`
+		Feedback string `json:"feedback"`
+		Score    string `json:"score"`
 	}
 	if err := json.Unmarshal([]byte(clean), &parsed); err != nil {
 		return LogbookAIEvaluation{}, fmt.Errorf("invalid AI JSON: %w", err)
@@ -364,69 +369,26 @@ func parseLogbookEvaluation(raw string) (LogbookAIEvaluation, error) {
 		return LogbookAIEvaluation{}, errors.New("AI response missing feedback")
 	}
 
-	score := formatLogbookDailyScore(parsed.Score)
+	score := normalizeComplaintImpact(parsed.Score)
 	if score == "" {
-		return LogbookAIEvaluation{}, errors.New("AI response missing score")
+		return LogbookAIEvaluation{}, errors.New("AI response missing valid impact level")
 	}
 
+	isCritical := score == complaintImpactCritical
 	return LogbookAIEvaluation{
 		Feedback:   feedback,
 		Score:      score,
-		IsCritical: parseIsCritical(parsed.IsCritical),
+		IsCritical: isCritical,
 	}, nil
 }
 
-func formatLogbookDailyScore(value interface{}) string {
-	if value == nil {
-		return ""
-	}
-	raw := strings.TrimSpace(fmt.Sprint(value))
-	if raw == "" || strings.EqualFold(raw, "<nil>") {
-		return ""
-	}
-	upper := strings.ToUpper(raw)
-	if match := regexp.MustCompile(`\b([SABCD])\b`).FindStringSubmatch(upper); len(match) == 2 && !strings.ContainsAny(raw, "0123456789") {
-		return ""
-	}
-
-	var digits strings.Builder
-	for _, r := range raw {
-		if r >= '0' && r <= '9' {
-			digits.WriteRune(r)
-			if digits.Len() >= 2 {
-				break
-			}
-			continue
-		}
-		if digits.Len() > 0 {
-			break
-		}
-	}
-	if digits.Len() == 0 {
-		return ""
-	}
-	n := 0
-	fmt.Sscanf(digits.String(), "%d", &n)
-	if n < 1 {
-		n = 1
-	}
-	if n > 10 {
-		n = 10
-	}
-	return fmt.Sprintf("%d/10", n)
-}
-
-func parseIsCritical(value interface{}) bool {
-	switch v := value.(type) {
-	case bool:
-		return v
-	case string:
-		s := strings.ToLower(strings.TrimSpace(v))
-		return s == "true" || s == "1" || s == "yes"
-	case float64:
-		return v != 0
+func normalizeComplaintImpact(value string) string {
+	raw := strings.TrimSpace(value)
+	switch raw {
+	case complaintImpactNone, complaintImpactWork, complaintImpactCritical:
+		return raw
 	default:
-		return false
+		return ""
 	}
 }
 

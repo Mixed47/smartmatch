@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { Skill, JobMatch, Application } from './types';
+import { Skill, JobMatch, Application, SwipeDecision } from './types';
 import { apiFetch, apiJson, friendlyApiError } from './apiClient';
 import StudentPetitions from './StudentPetitions';
 import { EmptyState, PageHeading, Skeleton, SkeletonList, Spinner } from './ui';
@@ -11,6 +11,8 @@ const IconSparkles = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7
 const IconChat = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.436 3 11.996c0 2.29.932 4.35 2.44 5.86l-1.92 2.91a.75.75 0 00.91 1.09l3.22-1.39a9.123 9.123 0 004.35 1.034z" /></svg>;
 const IconAlert = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-5 w-5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>;
 const IconUserCircle = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-10 w-10"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>;
+const IconHistory = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+const IconClose = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="h-5 w-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>;
 
 const CHAT_POLL_MS = 10000;
 
@@ -58,9 +60,10 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
   const [myApps, setMyApps] = useState<Application[]>([]);
   const [appsLoading, setAppsLoading] = useState(true);
   const [swipeDirection, setSwipeDirection] = useState<'left' | 'right' | null>(null);
-  // Jobs the student swiped away stay hidden for the whole session, so they do
-  // not reappear when the menu is switched and the matches are refetched.
-  const passedJobsRef = useRef<Set<string>>(new Set());
+  const [swipeHistory, setSwipeHistory] = useState<SwipeDecision[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [changingDecisionId, setChangingDecisionId] = useState<number | null>(null);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
   // One draft per application, so several open chat rooms never share text.
@@ -83,6 +86,25 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
       .then((data) => { setMyApps(Array.isArray(data) ? data : []); setLoadError(''); })
       .catch((err) => { setLoadError(friendlyApiError(err, 'โหลดใบสมัครไม่สำเร็จ')); })
       .finally(() => setAppsLoading(false));
+  };
+
+  const fetchSwipeHistory = () => {
+    setHistoryLoading(true);
+    return apiJson('/api/swipe-decisions')
+      .then((data) => { setSwipeHistory(Array.isArray(data) ? data : []); })
+      .catch((err) => { setLoadError(friendlyApiError(err, 'โหลดประวัติการตัดสินใจไม่สำเร็จ')); })
+      .finally(() => setHistoryLoading(false));
+  };
+
+  const rememberDecision = (job: JobMatch, decision: SwipeDecision['decision'], id = Date.now()) => {
+    const entry: SwipeDecision = {
+      id,
+      job_title: job.job_title,
+      company: job.company,
+      match_percentage: job.match_percentage,
+      decision,
+    };
+    setSwipeHistory((prev) => [entry, ...prev.filter((item) => jobKey(item) !== jobKey(job))]);
   };
 
   const loadProfile = () => {
@@ -112,16 +134,18 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
       .finally(() => setProfileLoading(false));
   };
 
-  useEffect(() => { loadProfile(); }, []);
+  useEffect(() => { loadProfile(); fetchSwipeHistory(); }, []);
 
   useEffect(() => { fetchApplications(); }, [activeMenu, profileData.firstName]);
 
-  // Drops jobs already applied to and jobs swiped away in this session, then
+  const decidedJobKeys = useMemo(() => new Set(swipeHistory.map((item) => jobKey(item))), [swipeHistory]);
+
+  // Drops jobs the student already applied to or already decided on, then
   // orders the deck by match quality.
   const buildJobDeck = (jobs: JobMatch[]) => {
     const appliedTitles = myApps.map(a => a.job_title);
     return jobs
-      .filter((job) => !appliedTitles.includes(job.job_title) && !passedJobsRef.current.has(jobKey(job)))
+      .filter((job) => !appliedTitles.includes(job.job_title) && !decidedJobKeys.has(jobKey(job)))
       .sort((a, b) => b.match_percentage - a.match_percentage);
   };
 
@@ -211,8 +235,19 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
 
   const handleSwipe = (type: 'apply' | 'pass', job: JobMatch) => {
     setSwipeDirection(type === 'apply' ? 'right' : 'left');
+    rememberDecision(job, type === 'apply' ? 'accepted' : 'rejected');
     if (type === 'pass') {
-      passedJobsRef.current.add(jobKey(job));
+      apiJson('/api/swipe-decisions', {
+        method: 'POST',
+        body: JSON.stringify({
+          job_title: job.job_title,
+          company: job.company,
+          match_percentage: job.match_percentage,
+          decision: 'rejected',
+        }),
+      }).then((saved: SwipeDecision) => {
+        rememberDecision(job, 'rejected', saved.id);
+      }).catch((err) => { showToast(friendlyApiError(err, 'บันทึกการปฏิเสธไม่สำเร็จ'), 'error'); });
     }
     if (type === 'apply') {
       apiJson('/api/apply', {
@@ -221,10 +256,35 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
       }).then(() => {
         showToast(`ส่งใบสมัครไปยัง ${job.company} แล้ว!`, 'success');
         fetchApplications();
+        fetchSwipeHistory();
       }).catch((err) => { showToast(friendlyApiError(err, 'ส่งใบสมัครไม่สำเร็จ'), 'error'); });
     }
     setTimeout(() => { setMatchedJobs(prev => prev.slice(1)); setSwipeDirection(null); }, 300);
   };
+
+  const handleChangeDecision = async (item: SwipeDecision) => {
+    if (item.decision !== 'rejected' || changingDecisionId) return;
+    setChangingDecisionId(item.id);
+    try {
+      const saved = await apiJson(`/api/swipe-decisions/${item.id}/change`, { method: 'POST' });
+      setSwipeHistory((prev) => prev.map((row) => (row.id === item.id ? { ...row, ...saved, decision: 'accepted' } : row)));
+      fetchApplications();
+      showToast(`เปลี่ยนเป็นยืนยัน/สนใจแล้ว และส่งใบสมัครไปยัง ${item.company}`, 'success');
+    } catch (err) {
+      showToast(friendlyApiError(err, 'เปลี่ยนการตัดสินใจไม่สำเร็จ'), 'error');
+    } finally {
+      setChangingDecisionId(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!showHistory) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowHistory(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showHistory]);
 
   const draftOf = (appId: string) => drafts[appId] || '';
   const setDraft = (appId: string, text: string) => setDrafts((current) => ({ ...current, [appId]: text }));
@@ -290,6 +350,87 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
       {loadError && (
         <div className="alert alert-danger mb-6" role="alert">{loadError}</div>
       )}
+
+      <AnimatePresence>
+        {showHistory && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-end justify-center bg-overlay p-4 backdrop-blur-sm sm:items-center"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="swipe-history-title"
+            onClick={() => setShowHistory(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.96, y: 24 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.96, y: 24 }}
+              onClick={(event) => event.stopPropagation()}
+              className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-line bg-surface shadow-2xl"
+            >
+              <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4 sm:px-6">
+                <div>
+                  <p className="eyebrow">Decision Log</p>
+                  <h3 id="swipe-history-title" className="mt-1 text-lg font-bold text-ink">ประวัติการตัดสินใจ (History)</h3>
+                  <p className="mt-1 text-sm text-ink-muted">รายการบริษัทและตำแหน่งที่คุณเคยปัดไปแล้ว</p>
+                </div>
+                <button type="button" onClick={() => setShowHistory(false)} className="icon-btn" aria-label="ปิดประวัติการตัดสินใจ">
+                  <IconClose />
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+                {historyLoading && <SkeletonList count={3} rows={2} />}
+
+                {!historyLoading && swipeHistory.length === 0 && (
+                  <EmptyState
+                    icon={<IconHistory />}
+                    title="ยังไม่มีประวัติการตัดสินใจ"
+                    description="เมื่อคุณปัดการ์ดงาน รายการจะถูกบันทึกที่นี่พร้อมสถานะชัดเจน"
+                  />
+                )}
+
+                {!historyLoading && swipeHistory.length > 0 && (
+                  <ul className="space-y-3">
+                    {swipeHistory.map((item) => {
+                      const accepted = item.decision === 'accepted';
+                      return (
+                        <li key={`${item.id}-${jobKey(item)}`} className="card card-pad">
+                          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <h4 className="text-base font-bold text-ink">{item.job_title}</h4>
+                              <p className="mt-1 text-sm text-ink-muted">{item.company}</p>
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <span className={`badge ${accepted ? 'badge-success' : 'badge-danger'}`}>
+                                  {accepted ? 'ยืนยัน/สนใจ (Accepted)' : 'ปฏิเสธ (Rejected)'}
+                                </span>
+                                <span className="badge badge-neutral">ตรงกัน {item.match_percentage}%</span>
+                                {item.created_at && <span className="text-xs text-ink-subtle">{item.created_at}</span>}
+                              </div>
+                            </div>
+                            {!accepted && (
+                              <button
+                                type="button"
+                                onClick={() => handleChangeDecision(item)}
+                                disabled={changingDecisionId === item.id}
+                                className="btn btn-brand-soft btn-sm shrink-0"
+                              >
+                                {changingDecisionId === item.id ? <><Spinner /> กำลังเปลี่ยน...</> : 'เปลี่ยนการตัดสินใจ (Change Decision)'}
+                              </button>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence mode="wait">
 
@@ -532,9 +673,22 @@ export default function Student({ activeMenu, setActiveMenu, showToast }: { acti
         {/* ---------- Job discovery ---------- */}
         {activeMenu === '2' && (
           <motion.div key="menu2" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="mx-auto flex w-full max-w-xl flex-col items-center">
-            <motion.div variants={itemVariants} className="mb-8 text-center">
-              <h2 className="page-title">ค้นหาที่ฝึกงาน</h2>
-              <p className="page-subtitle">กดปุ่ม ✓ เพื่อสมัคร หรือ ✕ เพื่อข้ามตำแหน่งนี้</p>
+            <motion.div variants={itemVariants} className="mb-2 w-full">
+              <PageHeading
+                title="ค้นหาที่ฝึกงาน"
+                subtitle="กดปุ่ม ✓ เพื่อสมัคร หรือ ✕ เพื่อข้ามตำแหน่งนี้"
+                eyebrow="Job Matching"
+                actions={
+                  <button
+                    type="button"
+                    onClick={() => { setShowHistory(true); fetchSwipeHistory(); }}
+                    className="btn btn-outline btn-sm"
+                  >
+                    <IconHistory /> ดูประวัติ (History)
+                    {swipeHistory.length > 0 && <span className="badge badge-neutral">{swipeHistory.length}</span>}
+                  </button>
+                }
+              />
             </motion.div>
 
             {matchedJobs.length === 0 ? (

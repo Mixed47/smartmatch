@@ -13,6 +13,8 @@ const IconBuilding = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7
 const IconClipboard = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>;
 const IconChat = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.436 3 11.996c0 2.29.932 4.35 2.44 5.86l-1.92 2.91a.75.75 0 00.91 1.09l3.22-1.39a9.123 9.123 0 004.35 1.034z" /></svg>;
 const IconSparkles = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-5 w-5"><path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" /></svg>;
+const IconHistory = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.7} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+const IconClose = () => <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="h-5 w-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>;
 
 const containerVariants: Variants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.08 } } };
 const itemVariants: Variants = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 110, damping: 16 } } };
@@ -76,6 +78,10 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
   const [evalScore, setEvalScore] = useState('');
   const [evalComment, setEvalComment] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
+  const [decisionHistory, setDecisionHistory] = useState<Application[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [changingDecisionId, setChangingDecisionId] = useState<string | null>(null);
 
   const fetchMyJobs = () => {
     apiJson('/api/jobs')
@@ -113,7 +119,10 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
         .catch((err) => { setLoadError(friendlyApiError(err, 'โหลดผู้สมัครไม่สำเร็จ')); })
         .finally(() => setApplicantsLoading(false));
     };
-    if (activeMenu === '5' || activeMenu === 'hr-home') fetchApps();
+    if (activeMenu === '5' || activeMenu === 'hr-home') {
+      fetchApps();
+      fetchDecisionHistory();
+    }
     const interval = setInterval(() => { if (activeMenu === '5' || activeMenu === 'hr-home') fetchApps(); }, LIST_POLL_MS);
     return () => clearInterval(interval);
   }, [activeMenu]);
@@ -219,11 +228,49 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
     } catch (error) { showToast(friendlyApiError(error, 'ระบบมีปัญหา ไม่สามารถประกาศงานได้'), 'error'); }
   };
 
-  const handleAction = (type: 'like' | 'pass', applicantId: string) => {
+  const fetchDecisionHistory = () => {
+    setHistoryLoading(true);
+    return apiJson('/api/hr-decisions')
+      .then((data) => { setDecisionHistory(Array.isArray(data) ? data : []); })
+      .catch((err) => { setLoadError(friendlyApiError(err, 'โหลดประวัติการตัดสินใจไม่สำเร็จ')); })
+      .finally(() => setHistoryLoading(false));
+  };
+
+  const handleAction = (type: 'like' | 'pass', applicant: Application) => {
     setSwipeDirection(type === 'like' ? 'right' : 'left');
-    apiJson('/api/update-status', { method: 'POST', body: JSON.stringify({ id: applicantId, status: type === 'like' ? 'Matched' : 'Rejected' }) }).then(() => { if (type === 'like') showToast('Match สำเร็จ!', 'success'); }).catch((err) => { showToast(friendlyApiError(err, 'อัปเดตสถานะไม่สำเร็จ'), 'error'); });
+    const nextStatus = type === 'like' ? 'Matched' : 'Rejected';
+    apiJson('/api/update-status', { method: 'POST', body: JSON.stringify({ id: applicant.id, status: nextStatus }) })
+      .then(() => {
+        if (type === 'like') showToast('Match สำเร็จ!', 'success');
+        setDecisionHistory((prev) => [{ ...applicant, status: nextStatus }, ...prev.filter((item) => item.id !== applicant.id)]);
+      })
+      .catch((err) => { showToast(friendlyApiError(err, 'อัปเดตสถานะไม่สำเร็จ'), 'error'); });
     setTimeout(() => { setApplicants(prev => prev.slice(1)); setSwipeDirection(null); }, 300);
   };
+
+  const handleChangeDecision = async (item: Application) => {
+    if (item.status !== 'Rejected' || changingDecisionId) return;
+    setChangingDecisionId(item.id);
+    try {
+      await apiJson('/api/update-status', { method: 'POST', body: JSON.stringify({ id: item.id, status: 'Matched' }) });
+      setDecisionHistory((prev) => prev.map((row) => (row.id === item.id ? { ...row, status: 'Matched' } : row)));
+      apiJson('/api/hr-matches').then((data) => setMatchedList(data || [])).catch(() => {});
+      showToast(`เปลี่ยนเป็นยืนยัน/สนใจแล้ว: ${item.name}`, 'success');
+    } catch (err) {
+      showToast(friendlyApiError(err, 'เปลี่ยนการตัดสินใจไม่สำเร็จ'), 'error');
+    } finally {
+      setChangingDecisionId(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!showHistory) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowHistory(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showHistory]);
 
   const draftOf = (threadId: string) => drafts[threadId] || '';
   const setDraft = (threadId: string, text: string) => setDrafts((current) => ({ ...current, [threadId]: text }));
@@ -267,6 +314,84 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
   return (
     <div className="relative w-full text-ink">
       {loadError && <div className="alert alert-danger mb-6" role="alert">{loadError}</div>}
+
+      {/* ---------- Decision history modal ---------- */}
+      <AnimatePresence>
+        {showHistory && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-end justify-center bg-overlay p-4 backdrop-blur-sm sm:items-center"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hr-history-title"
+            onClick={() => setShowHistory(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.96, y: 24 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.96, y: 24 }}
+              onClick={(event) => event.stopPropagation()}
+              className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-line bg-surface shadow-2xl"
+            >
+              <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4 sm:px-6">
+                <div>
+                  <p className="eyebrow">Decision Log</p>
+                  <h3 id="hr-history-title" className="mt-1 text-lg font-bold text-ink">ประวัติการตัดสินใจ (History)</h3>
+                  <p className="mt-1 text-sm text-ink-muted">รายการผู้สมัครที่ทีม HR เคยปัดไปแล้ว</p>
+                </div>
+                <button type="button" onClick={() => setShowHistory(false)} className="icon-btn" aria-label="ปิดประวัติการตัดสินใจ">
+                  <IconClose />
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+                {historyLoading && <SkeletonList count={3} rows={2} />}
+                {!historyLoading && decisionHistory.length === 0 && (
+                  <EmptyState
+                    icon={<IconHistory />}
+                    title="ยังไม่มีประวัติการตัดสินใจ"
+                    description="เมื่อคุณปัดการ์ดผู้สมัคร รายการจะถูกบันทึกที่นี่พร้อมสถานะชัดเจน"
+                  />
+                )}
+                {!historyLoading && decisionHistory.length > 0 && (
+                  <ul className="space-y-3">
+                    {decisionHistory.map((item) => {
+                      const accepted = item.status !== 'Rejected';
+                      return (
+                        <li key={item.id} className="card card-pad">
+                          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <h4 className="text-base font-bold text-ink">{item.name}</h4>
+                              <p className="mt-1 text-sm text-ink-muted">{item.job_title} · {item.company}</p>
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <span className={`badge ${accepted ? 'badge-success' : 'badge-danger'}`}>
+                                  {accepted ? 'ยืนยัน/สนใจ (Accepted)' : 'ปฏิเสธ (Rejected)'}
+                                </span>
+                                <span className="badge badge-neutral">ตรงกัน {item.match_percentage}%</span>
+                              </div>
+                            </div>
+                            {item.status === 'Rejected' && (
+                              <button
+                                type="button"
+                                onClick={() => handleChangeDecision(item)}
+                                disabled={changingDecisionId === item.id}
+                                className="btn btn-brand-soft btn-sm shrink-0"
+                              >
+                                {changingDecisionId === item.id ? <><Spinner /> กำลังเปลี่ยน...</> : 'เปลี่ยนการตัดสินใจ (Change Decision)'}
+                              </button>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ---------- Evaluation modal ---------- */}
       <AnimatePresence>
@@ -541,9 +666,22 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
         {/* ---------- Candidate screening ---------- */}
         {activeMenu === '5' && (
           <motion.div key="menu5" variants={containerVariants} initial="hidden" animate="show" exit="hidden" className="mx-auto flex w-full max-w-xl flex-col items-center">
-            <motion.div variants={itemVariants} className="mb-8 text-center">
-              <h2 className="page-title">คัดกรองผู้สมัคร</h2>
-              <p className="page-subtitle">กดปุ่ม ✓ เพื่อรับเข้าทำงาน หรือ ✕ เพื่อปฏิเสธ</p>
+            <motion.div variants={itemVariants} className="mb-2 w-full">
+              <PageHeading
+                title="คัดกรองผู้สมัคร"
+                subtitle="กดปุ่ม ✓ เพื่อรับเข้าทำงาน หรือ ✕ เพื่อปฏิเสธ"
+                eyebrow="Candidate Matching"
+                actions={
+                  <button
+                    type="button"
+                    onClick={() => { setShowHistory(true); fetchDecisionHistory(); }}
+                    className="btn btn-outline btn-sm"
+                  >
+                    <IconHistory /> ดูประวัติ (History)
+                    {decisionHistory.length > 0 && <span className="badge badge-neutral">{decisionHistory.length}</span>}
+                  </button>
+                }
+              />
             </motion.div>
 
             {applicantsLoading && <div className="w-full"><SkeletonList count={1} rows={5} /></div>}
@@ -601,7 +739,7 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
                   <motion.button
                     type="button"
                     whileTap={{ scale: 0.94 }}
-                    onClick={() => handleAction('pass', applicants[0].id)}
+                    onClick={() => handleAction('pass', applicants[0])}
                     className="flex h-16 w-16 items-center justify-center rounded-full border border-line bg-surface text-2xl text-rose-500 shadow-md transition hover:bg-rose-50 focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-bg dark:hover:bg-rose-500/10"
                     aria-label="ปฏิเสธผู้สมัคร"
                   >
@@ -610,7 +748,7 @@ export default function Company({ activeMenu, setActiveMenu, showToast }: { acti
                   <motion.button
                     type="button"
                     whileTap={{ scale: 0.94 }}
-                    onClick={() => handleAction('like', applicants[0].id)}
+                    onClick={() => handleAction('like', applicants[0])}
                     className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-600 text-2xl text-white shadow-lg shadow-emerald-600/30 transition hover:bg-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
                     aria-label="รับผู้สมัครเข้าทำงาน"
                   >

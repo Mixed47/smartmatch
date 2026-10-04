@@ -231,6 +231,7 @@ func initDB() {
 	ensureMFAColumns()
 	ensureProfileTables()
 	ensureMessagesTable()
+	ensureSwipeDecisionsTable()
 }
 
 // requireSecrets stops the server when secrets are missing so that no request
@@ -281,8 +282,12 @@ func main() {
 	r.Handle("/api/messages", authed(sendMessageHandler, roleStudent, roleCompany, roleTeacher)).Methods("POST")
 	r.Handle("/api/extract-jd", authed(extractJDHandler, roleCompany)).Methods("POST")
 	r.Handle("/api/apply", authed(applyJobHandler, roleStudent)).Methods("POST")
+	r.Handle("/api/swipe-decisions", authed(listSwipeDecisionsHandler, roleStudent)).Methods("GET")
+	r.Handle("/api/swipe-decisions", authed(recordSwipeDecisionHandler, roleStudent)).Methods("POST")
+	r.Handle("/api/swipe-decisions/{id}/change", authed(changeSwipeDecisionHandler, roleStudent)).Methods("POST")
 	r.Handle("/api/my-applications", authed(getMyApplicationsHandler, roleStudent, roleTeacher)).Methods("GET")
 	r.Handle("/api/hr-matches", authed(getHRMatchesHandler, roleCompany)).Methods("GET")
+	r.Handle("/api/hr-decisions", authed(getHRDecisionsHandler, roleCompany)).Methods("GET")
 	r.Handle("/api/generate-questions", authed(generateQuestionsHandler, roleStudent)).Methods("POST")
 	r.Handle("/api/generate-email", authed(generateEmailHandler, roleStudent)).Methods("POST")
 	r.Handle("/api/request-cancel", authed(requestCancelHandler, roleStudent)).Methods("POST")
@@ -712,6 +717,7 @@ func matchJobsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
+	decided := loadStudentDecidedJobKeys(userID)
 	matches := []JobMatchResponse{}
 	for rows.Next() {
 		var title, company, reqSkillsStr string
@@ -726,6 +732,9 @@ func matchJobsHandler(w http.ResponseWriter, r *http.Request) {
 		// A missing critical skill is a hard filter: the job never reaches the
 		// student's recommendation list.
 		if rejected {
+			continue
+		}
+		if decided[jobDecisionKey(title, company)] {
 			continue
 		}
 		match.JobTitle = title
@@ -771,15 +780,14 @@ func applyJobHandler(w http.ResponseWriter, r *http.Request) {
 		ResumeURL       string   `json:"resume_url"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	skillsJSON, _ := json.Marshal(req.Skills)
-	_, companyUserID := lookupJobOwner(req.JobTitle, req.Company)
-	_, err := db.Exec(
-		`INSERT INTO applications (name, job_title, company, match_percentage, skills, resume_url, status, student_id, company_user_id)
-		 VALUES (?, ?, ?, ?, ?, ?, 'Pending', ?, ?)`,
-		req.Name, req.JobTitle, req.Company, req.MatchPercentage, string(skillsJSON), req.ResumeURL, userID, companyUserID,
-	)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to apply")
+	if !studentAlreadyApplied(userID, req.JobTitle, req.Company) {
+		if err := createStudentApplication(userID, req.Name, req.JobTitle, req.Company, req.MatchPercentage, req.Skills, req.ResumeURL); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to apply")
+			return
+		}
+	}
+	if _, err := upsertSwipeDecision(userID, req.JobTitle, req.Company, req.MatchPercentage, swipeAccepted); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save swipe decision")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})

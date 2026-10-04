@@ -20,6 +20,15 @@ export interface JobMatch {
   critical_skills?: string[];
 }
 
+export interface SwipeDecision {
+  id: number;
+  job_title: string;
+  company: string;
+  match_percentage: number;
+  decision: 'accepted' | 'rejected';
+  created_at?: string;
+}
+
 export interface Application {
   id: string;
   student_id: number;

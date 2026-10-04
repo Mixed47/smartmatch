@@ -97,12 +97,27 @@ var freelanceKeywords = []string{
 	"จ้างทำ",
 }
 
-var workExperienceKeywords = []string{
-	"work experience",
+var internshipContextKeywords = []string{
 	"internship",
 	"intern",
+	"intern student",
+	"co-op",
+	"coop",
+	"cooperative education",
+	"ฝึกงาน",
+	"นักศึกษาฝึกงาน",
+	"สหกิจ",
+	"สหกิจศึกษา",
+}
+
+var workExperienceKeywords = []string{
+	"work experience",
 	"full-time",
 	"fulltime",
+	"full time",
+	"ทำงานประจำ",
+	"พนักงานประจำ",
+	"งานประจำ",
 	"part-time",
 	"parttime",
 	"บริษัท",
@@ -110,9 +125,6 @@ var workExperienceKeywords = []string{
 	"ทำงานจริง",
 	"ทำงานที่",
 	"พนักงาน",
-	"ฝึกงาน",
-	"สหกิจ",
-	"สหกิจศึกษา",
 	"ลูกค้าองค์กร",
 }
 
@@ -189,13 +201,24 @@ func looksWorkExperienceLevel(text string) bool {
 	return containsAnyKeyword(text, workExperienceKeywords)
 }
 
+func looksInternshipLevel(text string) bool {
+	return containsAnyKeyword(text, internshipContextKeywords)
+}
+
 func hasProductionOrFreelanceEvidence(text string) bool {
 	return looksProductionLevel(text) || looksFreelanceLevel(text)
 }
 
-// hasGradeSEvidence covers the three cases that justify grade S: freelance
-// work, a production deployment, and real work experience.
+func blocksGradeS(text string) bool {
+	return looksInternshipLevel(text) || looksSeniorProjectLevel(text)
+}
+
+// hasGradeSEvidence is commercial Full-time / Freelance / production only.
+// Internship, coop, and senior-project context never qualify for S.
 func hasGradeSEvidence(text string) bool {
+	if blocksGradeS(text) {
+		return false
+	}
 	return hasProductionOrFreelanceEvidence(text) || looksWorkExperienceLevel(text)
 }
 
@@ -258,28 +281,37 @@ func candidateScoringPrompt(experience string) string {
 
 %s
 
+[CRITICAL GRADING RULES]
+บังคับให้อ่าน 'บริบทลำดับชั้น (Hierarchical Context)' ต้องดูว่าทักษะนั้นอยู่ใต้หัวข้อ (Heading) หรือตำแหน่ง (Role) อะไร แล้วใส่หัวข้อ/ตำแหน่งนั้นใน field source เสมอ
+กฎห้ามเกรด S เด็ดขาด: หากทักษะอยู่ภายใต้ประสบการณ์ที่ระบุว่าเป็น 'ฝึกงาน', 'นักศึกษาฝึกงาน', 'Internship', 'สหกิจศึกษา' หรือ 'โปรเจกต์จบ' ห้ามให้เกรด S อย่างเด็ดขาด ให้สูงสุดได้แค่เกรด A เท่านั้น (ต่อให้ผลงานจะเขียนว่าพัฒนาระบบจริงให้บริษัทก็ตาม)
+เกรด S จะให้ได้ก็ต่อเมื่ออยู่ในหัวข้อ ทำงานประจำ (Full-time), รับจ้าง (Freelance) ที่เป็นงาน Commercial จริงๆ เท่านั้น
+
 Strict Instruction (บังคับ):
-คุณต้องให้เกรด S, A, B, C, D ตามกฎอย่างเคร่งครัด ห้ามให้เกรด S กับงานที่เป็นโปรเจกต์จบ (Senior Project) หรือการบ้านรายวิชาเด็ดขาด งานเหล่านั้นต้องได้เกรด A หรือ B เท่านั้น
+คุณต้องให้เกรด S, A, B, C, D ตามกฎอย่างเคร่งครัด ห้ามให้เกรด S กับงานที่เป็นโปรเจกต์จบ (Senior Project) ฝึกงาน Internship สหกิจศึกษา หรือการบ้านรายวิชาเด็ดขาด งานเหล่านั้นต้องได้เกรด A หรือ B เท่านั้น
 
 กฎเกรด (ใช้ตามนี้เท่านั้น):
-- เกรด S: ทักษะที่ใช้ใน "การรับงานจริง (Freelance)" หรือ "มีผู้ใช้งานจริง (Production/Deploy)" หรือ "เป็นประสบการณ์ทำงานจริง (Work Experience)" เท่านั้น
-- เกรด A: ทักษะที่ได้ "เกรด A ในทรานสคริปต์" หรือ ใช้ใน "การทำโปรเจกต์จบ (Senior Project/Thesis)"
+- เกรด S: เฉพาะทักษะที่อยู่ภายใต้หัวข้อทำงานประจำ (Full-time) หรือรับจ้าง (Freelance) ที่เป็นงาน Commercial จริงเท่านั้น
+- เกรด A: ทักษะที่ได้ "เกรด A ในทรานสคริปต์" หรือใช้ใน "การทำโปรเจกต์จบ (Senior Project/Thesis)" หรืออยู่ใต้หัวข้อฝึกงาน / นักศึกษาฝึกงาน / Internship / สหกิจศึกษา แม้จะพัฒนาระบบจริงให้บริษัท
 - เกรด B: ทักษะที่ได้ "เกรด B ในทรานสคริปต์" หรือ ใช้ใน "การทำงานรายวิชาทั่วไป (Coursework Project) / การบ้านรายวิชา"
 - เกรด C: ทักษะที่ได้ "เกรด C ในทรานสคริปต์" หรือ "ในเรซูเม่เขียนระบุมาแค่ชื่อทักษะลอยๆ แต่ไม่ได้เขียนอธิบายเจาะลึกว่าเอาไปทำอะไร"
 - เกรด D: ทักษะที่ได้ "เกรด D ในทรานสคริปต์" หรือ "เพิ่งเริ่มเรียนรู้/กำลังศึกษาเบื้องต้น"
 
 วิธีตัดสิน:
-1. อ่านทีละประโยคแล้วจับ Evidence ของแต่ละทักษะ แล้วใส่ประโยคนั้นใน field source
-2. ตัดสินเกรดจาก Evidence ของทักษะนั้นเป็นหลัก ห้ามยืมหลักฐานของทักษะอื่นมาอัปเกรด
-3. ห้ามให้ S ถ้าไม่มี Evidence เรื่อง Freelance / Production-Deploy / Work Experience
-4. ห้ามให้เกรด S กับ Senior Project / Thesis / โครงงานจบ / การบ้านรายวิชา แม้เทคโนโลยีจะซับซ้อนแค่ไหน
-5. ห้ามให้ A แทน S เมื่อมี Evidence ระดับ S จริง (Freelance / Production / Work Experience)
+1. อ่าน Hierarchical Context (Heading/Role) ก่อน แล้วค่อยจับ Evidence ของแต่ละทักษะ และใส่หัวข้อนั้นใน field source
+2. ตัดสินเกรดจากบริบทหัวข้อของทักษะนั้นเป็นหลัก ห้ามยืมหลักฐานของทักษะหรือหัวข้ออื่นมาอัปเกรด
+3. ห้ามให้ S หากอยู่ใต้ฝึกงาน / นักศึกษาฝึกงาน / Internship / สหกิจศึกษา / โปรเจกต์จบ ต่อให้เขียนว่าพัฒนาระบบจริงให้บริษัท
+4. ห้ามให้เกรด S กับการบ้านรายวิชา แม้เทคโนโลยีจะซับซ้อนแค่ไหน
+5. ห้ามให้ A แทน S เมื่ออยู่ใต้หัวข้อ Full-time หรือ Freelance commercial จริง
 
 ตัวอย่าง (Few-shot — ทำตามนี้เท่านั้น):
 - ตัวอย่าง 1: "พัฒนา Web Application ด้วย React เป็นโปรเจกต์จบ" -> {"name": "React", "grade": "A"}
 - ตัวอย่าง 2: "เรียนรู้ Dart เบื้องต้น" -> {"name": "Dart", "grade": "D"}
 - ตัวอย่าง 3: "รับจ้างทำระบบด้วย Node.js ให้ลูกค้า" -> {"name": "Node.js", "grade": "S"}
+- "นักศึกษาฝึกงาน: พัฒนาระบบจริงให้บริษัทด้วย React" -> grade A
+- "Internship — Deploy production Node.js ให้บริษัท" -> grade A
+- "สหกิจศึกษา พัฒนาระบบจริงให้บริษัท" -> grade A
 - "รับจ้าง freelance และ Deploy ขึ้นระบบจริงให้ลูกค้า" -> grade S
+- "ทำงานประจำ (Full-time) พัฒนาระบบด้วย React" -> grade S
 - "ใช้ React ใน Senior Project / โครงงานจบ" -> grade A
 - "ได้เกรด A ในทรานสคริปต์วิชา Database" -> grade A สำหรับทักษะนั้น
 - "ทำโปรเจกต์รายวิชาทั่วไป" -> grade B
@@ -335,7 +367,7 @@ func enforceCandidateSkillGrades(skills []SkillItem, evidenceTexts ...string) []
 		if grade == "S" {
 			evidence := skillGradeEvidence(skill, sharedEvidence)
 			switch {
-			case looksSeniorProjectLevel(evidence):
+			case looksInternshipLevel(evidence) || looksSeniorProjectLevel(evidence):
 				grade = "A"
 			case looksCourseworkLevel(evidence):
 				grade = "B"

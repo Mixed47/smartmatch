@@ -79,6 +79,19 @@ func TestEnforceCandidateSkillGradesDowngradesInvalidS(t *testing.T) {
 	if !hasSkillGrade(got, "Node.js", "S") {
 		t.Fatalf("expected freelance Node.js to keep S, got %+v", got)
 	}
+
+	internshipCases := []string{
+		"นักศึกษาฝึกงาน พัฒนาระบบจริงให้บริษัท Deploy ขึ้น production ด้วย React",
+		"Internship: พัฒนาระบบจริงให้บริษัทด้วย Go",
+		"ฝึกงานที่บริษัท ขึ้นระบบจริงให้ผู้ใช้งานจริงด้วย Node.js",
+		"สหกิจศึกษา Deploy ขึ้นระบบจริงให้บริษัท",
+	}
+	for _, evidence := range internshipCases {
+		got = enforceCandidateSkillGrades([]SkillItem{{Name: "React", Grade: "S", Source: evidence}})
+		if !hasSkillGrade(got, "React", "A") {
+			t.Fatalf("internship context must cap S at A, evidence=%q got %+v", evidence, got)
+		}
+	}
 }
 
 func TestEnforceCandidateSkillGradesKeepsAllThreeSCases(t *testing.T) {
@@ -114,6 +127,20 @@ func TestLetterGradeScoreCountsSHighest(t *testing.T) {
 	gradeValues := map[string]int{"S": 5, "A": 4, "B": 3, "C": 2, "D": 1}
 	if gradeValues["S"] <= gradeValues["A"] {
 		t.Fatal("S must outrank A in job matching")
+	}
+}
+
+func TestCandidateScoringPromptHasHierarchicalSRules(t *testing.T) {
+	prompt := candidateScoringPrompt("ใช้ React")
+	for _, needle := range []string{
+		"[CRITICAL GRADING RULES]",
+		"บริบทลำดับชั้น (Hierarchical Context)",
+		"ห้ามให้เกรด S อย่างเด็ดขาด ให้สูงสุดได้แค่เกรด A เท่านั้น",
+		"ทำงานประจำ (Full-time), รับจ้าง (Freelance)",
+	} {
+		if !strings.Contains(prompt, needle) {
+			t.Fatalf("resume grading prompt missing %q", needle)
+		}
 	}
 }
 
